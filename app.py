@@ -225,6 +225,8 @@ def main():
             if not os.path.exists(template_path):
                 st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente o verifica il percorso.")
                 st.write(f"Percorso cercato: {template_path}")
+                # Debug: Mostra il contenuto della directory template
+                st.write("Contenuto della directory template:", os.listdir(os.path.join(os.path.dirname(__file__), "..", "template")))
                 return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
