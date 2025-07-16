@@ -220,20 +220,10 @@ def main():
                 template_path = tmp.name
                 tmp.write(template_file.read())
         else:
-            # Usa il template locale
+            # Usa il template dal repository
             template_path = os.path.join(os.path.dirname(__file__), "..", "template", "template.xlsx")
             if not os.path.exists(template_path):
-                st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente o verifica il percorso.")
-                st.write(f"Percorso cercato: {template_path}")
-                # Debug: Mostra il contenuto della directory template
-                template_dir = os.path.join(os.path.dirname(__file__), "..", "template")
-                st.write("Contenuto della directory template:", os.listdir(template_dir))
-                template_file_path = os.path.join(template_dir, "template.xlsx")
-                st.write("Percorso completo del file template.xlsx:", template_file_path)
-                st.write("Il file esiste:", os.path.exists(template_file_path))
-                # Debug: Verifica la directory corrente e il contenuto del progetto
-                st.write("Directory corrente:", os.getcwd())
-                st.write("Contenuto della directory corrente:", os.listdir(os.getcwd()))
+                st.error("Template etichette non trovato. Caricalo manualmente.")
                 return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
