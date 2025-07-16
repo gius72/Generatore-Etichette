@@ -231,6 +231,9 @@ def main():
                 template_file_path = os.path.join(template_dir, "template.xlsx")
                 st.write("Percorso completo del file template.xlsx:", template_file_path)
                 st.write("Il file esiste:", os.path.exists(template_file_path))
+                # Debug: Verifica la directory corrente e il contenuto del progetto
+                st.write("Directory corrente:", os.getcwd())
+                st.write("Contenuto della directory corrente:", os.listdir(os.getcwd()))
                 return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
