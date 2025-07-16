@@ -223,7 +223,8 @@ def main():
             # Usa il template locale
             template_path = os.path.join(os.path.dirname(__file__), "..", "template", "template.xlsx")
             if not os.path.exists(template_path):
-                st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente.")
+                st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente o verifica il percorso.")
+                st.write(f"Percorso cercato: {template_path}")
                 return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
@@ -233,7 +234,7 @@ def main():
         if stampa_dpe and dpe_file is not None:
             try:
                 if dpe_file.name.endswith(".csv"):
-                    # Prova con diversi encoding e separatori
+                    # Carica il file CSV con separatore ';'
                     try:
                         df_dpe = pd.read_csv(dpe_file, encoding="utf-8", sep=";")
                     except Exception:
