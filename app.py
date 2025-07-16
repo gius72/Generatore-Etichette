@@ -201,8 +201,8 @@ def main():
     st.write("Carica i file SAP e DPE, scegli i filtri e genera le etichette in Excel.")
 
     sap_file = st.file_uploader("Carica file SAP (Excel)", type=["xlsx"])
-    dpe_file = st.file_uploader("Carica file DPE (Excel)", type=["xlsx"])
-    template_file = st.file_uploader("Carica template etichette", type=["xlsx"])
+    dpe_file = st.file_uploader("Carica file DPE (Excel o CSV)", type=["xlsx", "csv"])
+    template_file = st.file_uploader("Carica template etichette (opzionale)", type=["xlsx"])
 
     filtro_sap_area = st.selectbox("Area SAP", ["Italia", "Estero", "Tutti"])
     filtro_sap_rimorchio = st.selectbox("Rimorchio SAP", ["A Piazzale", "Orario Fisso", "Tutti"])
@@ -214,16 +214,30 @@ def main():
     output_path = st.text_input("Nome file di output", "etichette_generate.xlsx")
 
     if st.button("Genera Etichette"):
-        if not template_file:
-            st.error("Devi caricare il template delle etichette.")
-            return
+        # Caricamento template
+        if template_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                template_path = tmp.name
+                tmp.write(template_file.read())
+        else:
+            # Usa il template locale
+            template_path = os.path.join(os.path.dirname(__file__), "..", "template", "template.xlsx")
+            if not os.path.exists(template_path):
+                st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente.")
+                return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
             df_sap = pd.read_excel(sap_file)
             df_sap_filtered = filtra_sap(df_sap, filtro_sap_area, filtro_sap_rimorchio)
             df_finale = pd.concat([df_finale, df_sap_filtered], ignore_index=True)
         if stampa_dpe and dpe_file is not None:
-            df_dpe = pd.read_excel(dpe_file)
+            if dpe_file.name.endswith(".csv"):
+                try:
+                    df_dpe = pd.read_csv(dpe_file, encoding="utf-8", sep=";")
+                except Exception:
+                    df_dpe = pd.read_csv(dpe_file, encoding="cp1252", sep=";")
+            else:
+                df_dpe = pd.read_excel(dpe_file)
             df_dpe_filtered = filtra_dpe(df_dpe, filtro_dpe_tipo_ingaggio, filtro_dpe_tipo_gestione)
             df_finale = pd.concat([df_finale, df_dpe_filtered], ignore_index=True)
         if df_finale.empty:
@@ -242,7 +256,14 @@ def main():
             else:
                 sap_part = pd.DataFrame()
             if dpe_file is not None:
-                dpe_part = df_finale[df_finale.columns.intersection(pd.read_excel(dpe_file).columns)].copy()
+                if dpe_file.name.endswith(".csv"):
+                    try:
+                        dpe_cols = pd.read_csv(dpe_file, encoding="utf-8", sep=";").columns
+                    except Exception:
+                        dpe_cols = pd.read_csv(dpe_file, encoding="cp1252", sep=";").columns
+                else:
+                    dpe_cols = pd.read_excel(dpe_file).columns
+                dpe_part = df_finale[df_finale.columns.intersection(dpe_cols)].copy()
                 dpe_part.columns = [c.strip() for c in dpe_part.columns]
                 if "Dt. Ingresso Prev." in dpe_part.columns:
                     dpe_part = dpe_part.sort_values(by="Dt. Ingresso Prev.")
@@ -251,9 +272,6 @@ def main():
             df_finale = pd.concat([sap_part, dpe_part], ignore_index=True)
         df_finale = elabora_numerazione(df_finale)
         # Salva file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-            template_path = tmp.name
-            tmp.write(template_file.read())
         success, msg = create_labels_from_template(df_finale, template_path, output_path, filtro_dpe_tipo_ingaggio)
         if success:
             st.success(msg)
