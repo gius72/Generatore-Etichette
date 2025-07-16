@@ -233,30 +233,34 @@ def main():
         if stampa_dpe and dpe_file is not None:
             try:
                 if dpe_file.name.endswith(".csv"):
+                    # Debug: mostra le prime righe del file
+                    dpe_file.seek(0)
+                    raw_content = dpe_file.read(500).decode('utf-8', errors='ignore')
+                    st.write("Prime 500 caratteri del file:")
+                    st.text(raw_content)
+                    dpe_file.seek(0)
+                    
                     # Prova diversi separatori e encoding
-                    separators = [";", ",", "\t"]
+                    separators = [";", ",", "\t", "|", " "]
                     encodings = ["utf-8", "cp1252", "iso-8859-1", "latin1"]
                     df_dpe = None
                     
                     for sep in separators:
                         for enc in encodings:
                             try:
+                                dpe_file.seek(0)
                                 df_dpe = pd.read_csv(dpe_file, encoding=enc, sep=sep)
-                                # Verifica se il caricamento ha senso (più di una colonna)
                                 if len(df_dpe.columns) > 1:
+                                    st.success(f"Caricato con separatore '{sep}' e encoding '{enc}' - {len(df_dpe.columns)} colonne")
                                     break
-                            except Exception:
+                            except Exception as e:
                                 continue
                         if df_dpe is not None and len(df_dpe.columns) > 1:
                             break
                     
                     if df_dpe is None or len(df_dpe.columns) <= 1:
                         st.error("Errore nel caricamento del file CSV. Verifica il formato e il separatore.")
-                        st.write("Separatori provati: ;", ",", "\t")
-                        st.write("Encoding provati: utf-8, cp1252, iso-8859-1, latin1")
                         return
-                    else:
-                        st.success(f"File CSV caricato con successo! Colonne trovate: {len(df_dpe.columns)}")
                 else:
                     df_dpe = pd.read_excel(dpe_file)
                     st.success(f"File Excel caricato con successo! Colonne trovate: {len(df_dpe.columns)}")
