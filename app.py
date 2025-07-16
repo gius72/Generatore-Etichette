@@ -227,6 +227,8 @@ def main():
                 st.write(f"Percorso cercato: {template_path}")
                 # Debug: Mostra il contenuto della directory template
                 st.write("Contenuto della directory template:", os.listdir(os.path.join(os.path.dirname(__file__), "..", "template")))
+                # Debug: Mostra la directory corrente
+                st.write("Directory corrente:", os.getcwd())
                 return
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
