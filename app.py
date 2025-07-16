@@ -243,17 +243,33 @@ def main():
         if stampa_dpe and dpe_file is not None:
             try:
                 if dpe_file.name.endswith(".csv"):
-                    # Carica il file CSV con separatore ';'
-                    try:
-                        df_dpe = pd.read_csv(dpe_file, encoding="utf-8", sep=";")
-                    except Exception:
-                        try:
-                            df_dpe = pd.read_csv(dpe_file, encoding="cp1252", sep=";")
-                        except Exception:
-                            st.error("Errore nel caricamento del file CSV. Verifica il formato e il separatore.")
-                            return
+                    # Prova diversi separatori e encoding
+                    separators = [";", ",", "\t"]
+                    encodings = ["utf-8", "cp1252", "iso-8859-1", "latin1"]
+                    df_dpe = None
+                    
+                    for sep in separators:
+                        for enc in encodings:
+                            try:
+                                df_dpe = pd.read_csv(dpe_file, encoding=enc, sep=sep)
+                                # Verifica se il caricamento ha senso (più di una colonna)
+                                if len(df_dpe.columns) > 1:
+                                    break
+                            except Exception:
+                                continue
+                        if df_dpe is not None and len(df_dpe.columns) > 1:
+                            break
+                    
+                    if df_dpe is None or len(df_dpe.columns) <= 1:
+                        st.error("Errore nel caricamento del file CSV. Verifica il formato e il separatore.")
+                        st.write("Separatori provati: ;", ",", "\t")
+                        st.write("Encoding provati: utf-8, cp1252, iso-8859-1, latin1")
+                        return
+                    else:
+                        st.success(f"File CSV caricato con successo! Colonne trovate: {len(df_dpe.columns)}")
                 else:
                     df_dpe = pd.read_excel(dpe_file)
+                    st.success(f"File Excel caricato con successo! Colonne trovate: {len(df_dpe.columns)}")
             except Exception as e:
                 st.error(f"Errore durante il caricamento del file: {e}")
                 return
@@ -276,10 +292,21 @@ def main():
                 sap_part = pd.DataFrame()
             if dpe_file is not None:
                 if dpe_file.name.endswith(".csv"):
-                    try:
-                        dpe_cols = pd.read_csv(dpe_file, encoding="utf-8", sep=";").columns
-                    except Exception:
-                        dpe_cols = pd.read_csv(dpe_file, encoding="cp1252", sep=";").columns
+                    separators = [";", ",", "\t"]
+                    encodings = ["utf-8", "cp1252", "iso-8859-1", "latin1"]
+                    dpe_cols = None
+                    
+                    for sep in separators:
+                        for enc in encodings:
+                            try:
+                                temp_df = pd.read_csv(dpe_file, encoding=enc, sep=sep)
+                                if len(temp_df.columns) > 1:
+                                    dpe_cols = temp_df.columns
+                                    break
+                            except Exception:
+                                continue
+                        if dpe_cols is not None:
+                            break
                 else:
                     dpe_cols = pd.read_excel(dpe_file).columns
                 dpe_part = df_finale[df_finale.columns.intersection(dpe_cols)].copy()
