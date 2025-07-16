@@ -231,13 +231,22 @@ def main():
             df_sap_filtered = filtra_sap(df_sap, filtro_sap_area, filtro_sap_rimorchio)
             df_finale = pd.concat([df_finale, df_sap_filtered], ignore_index=True)
         if stampa_dpe and dpe_file is not None:
-            if dpe_file.name.endswith(".csv"):
-                try:
-                    df_dpe = pd.read_csv(dpe_file, encoding="utf-8", sep=";")
-                except Exception:
-                    df_dpe = pd.read_csv(dpe_file, encoding="cp1252", sep=";")
-            else:
-                df_dpe = pd.read_excel(dpe_file)
+            try:
+                if dpe_file.name.endswith(".csv"):
+                    # Prova con diversi encoding e separatori
+                    try:
+                        df_dpe = pd.read_csv(dpe_file, encoding="utf-8", sep=";")
+                    except Exception:
+                        try:
+                            df_dpe = pd.read_csv(dpe_file, encoding="cp1252", sep=";")
+                        except Exception:
+                            st.error("Errore nel caricamento del file CSV. Verifica il formato e il separatore.")
+                            return
+                else:
+                    df_dpe = pd.read_excel(dpe_file)
+            except Exception as e:
+                st.error(f"Errore durante il caricamento del file: {e}")
+                return
             df_dpe_filtered = filtra_dpe(df_dpe, filtro_dpe_tipo_ingaggio, filtro_dpe_tipo_gestione)
             df_finale = pd.concat([df_finale, df_dpe_filtered], ignore_index=True)
         if df_finale.empty:
