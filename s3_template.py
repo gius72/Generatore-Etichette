@@ -11,7 +11,7 @@ def get_template_from_url():
     # URL del template su Dropbox (sostituire con il tuo URL pubblico)
     # Nota: per Dropbox, usa un link condiviso e sostituisci 'www.dropbox.com' con 'dl.dropboxusercontent.com'
     # e rimuovi '?dl=0' alla fine
-    template_url = "https://dl.dropboxusercontent.com/s/ekml0jntrd2bcbz9kyrbg/template.xlsx"
+    template_url = "https://www.dropbox.com/scl/fi/ekml0jntrd2bcbz9kyrbg/template.xlsx?dl=1"
     
     try:
         # Scarica il file
