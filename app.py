@@ -16,15 +16,29 @@ def filtra_sap(df, area, rimorchio):
     df.drop_duplicates(subset="Viaggio", inplace=True)
     if "DescrSpedizioniere" in df.columns:
         df = df[df["DescrSpedizioniere"] != "NUMBER 1 LOGISTICS GROUP S.P.A."]
-    if area == "Italia":
-        df = df[df["Nazione Dest"] == "IT"]
-    elif area == "Estero":
-        df = df[df["Nazione Dest"] != "IT"]
+    
+    # Gestione valori nulli e vuoti per Rimorchio
+    if "Rimorchio" in df.columns:
+        df["Rimorchio"] = df["Rimorchio"].fillna("Orario Fisso")
+        df.loc[df["Rimorchio"].astype(str).str.strip() == "", "Rimorchio"] = "Orario Fisso"
+    
+    # Filtro per area
+    if area != "Tutti":
+        if area == "Italia":
+            df = df[df["Nazione Dest"] == "IT"]
+        elif area == "Estero":
+            df = df[df["Nazione Dest"] != "IT"]
+    
+    # Filtro per rimorchio
     if rimorchio == "A Piazzale":
         df = df[df["Rimorchio"].astype(str).str.contains("A Piazzale", na=False)]
     elif rimorchio == "Orario Fisso":
         df = df[df["Rimorchio"].astype(str).str.contains("Orario Fisso", na=False)]
-    # Se è "Tutti", non applicare filtri sul rimorchio
+    elif rimorchio == "Tutti":
+        df = df[
+            df["Rimorchio"].astype(str).str.contains("A Piazzale", na=False) |
+            df["Rimorchio"].astype(str).str.contains("Orario Fisso", na=False)
+        ]
     return df.reset_index(drop=True)
 
 def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
@@ -51,11 +65,15 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
             df = df[df[tipo_ingaggio_col].astype(str).str.contains("RIFUGIO", na=False, case=False)]
 
     # Filtro per tipo gestione
-    if tipo_gestione != "Tutti":
-        if tipo_gestione == "A Piazzale":
-            df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE"]
-        elif tipo_gestione == "Orario Fisso":
-            df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO"]
+    if tipo_gestione == "A Piazzale":
+        df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE"]
+    elif tipo_gestione == "Orario Fisso":
+        df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO"]
+    elif tipo_gestione == "Tutti":
+        df = df[
+            (df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE") |
+            (df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO")
+        ]
 
     rename_map = {}
     if trasportatore_col:
@@ -70,6 +88,8 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
         rename_map[sequenza_col] = "Sequenza"
     if tipo_gestione_col:
         rename_map[tipo_gestione_col] = "Tipo Gestione"
+    if tipo_ingaggio_col:
+        rename_map[tipo_ingaggio_col] = "Tipo Ingaggio"
     if dt_ingresso_prev_col:
         rename_map[dt_ingresso_prev_col] = "Dt. Ingresso Prev."
     df = df.rename(columns=rename_map)
@@ -159,8 +179,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     targa = ""
                 ws_new["B14"].value = targa
                 dt = row1.get("Dt. Ingresso Prev.", "")
-                tipo_ingaggio_val = str(row1.get("Tipo Ingaggio", "")).upper()
-                if "SPOLE" in tipo_ingaggio_val:
+                if filtro_dpe_tipo_ingaggio == "Spole":
                     set_spola_style(ws_new, "H14")
                 else:
                     ws_new["H14"].value = format_hhmm(dt)
@@ -193,8 +212,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     targa = ""
                 ws_new["B46"].value = targa
                 dt = row2.get("Dt. Ingresso Prev.", "")
-                tipo_ingaggio_val2 = str(row2.get("Tipo Ingaggio", "")).upper()
-                if "SPOLE" in tipo_ingaggio_val2:
+                if filtro_dpe_tipo_ingaggio == "Spole":
                     set_spola_style(ws_new, "H46")
                 else:
                     ws_new["H46"].value = format_hhmm(dt)
