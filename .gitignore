@@ -44,5 +44,8 @@ ehthumbs.db
 Thumbs.db
 
 # Output files
-*.xlsx
+etichette_generate.xlsx
+*.log
+
+# Keep template
 !template/template.xlsx

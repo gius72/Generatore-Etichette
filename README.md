@@ -1,39 +1,24 @@
-# Generatore Etichette
+# Modulo Webapp
 
-Applicazione web per generare etichette da file SAP e DPE.
+Questo modulo contiene l'applicazione web Streamlit per il generatore di etichette.
 
-## Funzionalità
+## File principali
 
-- Caricamento file SAP (Excel)
-- Caricamento file DPE (Excel o CSV)
-- Filtri per area, rimorchio, tipo ingaggio e tipo gestione
-- Generazione etichette in formato Excel
-- Download del file generato
+- `app.py`: Applicazione principale Streamlit
+- `template_embedded.py`: Template Excel incorporato come base64
 
-## Deploy su Render.com
+## Funzionamento
 
-1. Crea un account su [Render.com](https://render.com)
-2. Collega il tuo repository GitHub
-3. Crea un nuovo Web Service
-4. Configura il deploy:
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `streamlit run webapp/app.py --server.port=$PORT --server.address=0.0.0.0`
-   - **Environment**: Python 3
+L'applicazione utilizza un template Excel incorporato direttamente nel codice come stringa base64, 
+eliminando la necessità di file esterni e garantendo il funzionamento su qualsiasi ambiente, 
+incluso Render.com.
 
-## Struttura del progetto
+## Utilizzo
 
-```
-Generatore Etichette/
-├── template/
-│   └── template.xlsx
-├── webapp/
-│   └── app.py
-└── requirements.txt
+Per avviare l'applicazione in locale:
+
+```bash
+streamlit run app.py
 ```
 
-## Requisiti
-
-- Python 3.9+
-- Streamlit
-- Pandas
-- Openpyxl
+Per il deploy su Render.com, seguire le istruzioni nel README principale.

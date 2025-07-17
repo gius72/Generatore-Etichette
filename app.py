@@ -5,6 +5,11 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, PatternFill, Font
 import re
 import tempfile
+import io
+import base64
+
+# Importa il template incorporato
+from template_embedded import get_template_bytes, get_template_file
 
 def filtra_sap(df, area, rimorchio):
     df = df.copy()
@@ -229,15 +234,17 @@ def main():
     if st.button("Genera Etichette", type="primary"):
         # Caricamento template
         if template_file:
+            # Usa il template caricato dall'utente
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 template_path = tmp.name
                 tmp.write(template_file.read())
+                st.success("Utilizzo del template caricato dall'utente.")
         else:
-            # Usa il template dal repository
-            template_path = os.path.join(os.path.dirname(__file__), "..", "template", "template.xlsx")
-            if not os.path.exists(template_path):
-                st.error("Template etichette non trovato. Caricalo manualmente.")
-                return
+            # Usa il template incorporato
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                template_path = tmp.name
+                tmp.write(get_template_bytes())
+                st.success("Utilizzo del template incorporato.")
                 
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
