@@ -126,6 +126,13 @@ def format_ddmm(value):
         return pd.to_datetime(value, errors="coerce").strftime("%d/%m")
     except Exception:
         return str(value)
+        
+def set_spola_style(ws, cell):
+    """Formatta la cella con lo stile SPOLA (grigio con testo bianco)"""
+    ws[cell].value = "SPOLA"
+    ws[cell].font = Font(color="FFFFFF", bold=True, size=28)
+    ws[cell].fill = PatternFill("solid", fgColor="808080")
+    ws[cell].alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
 def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_ingaggio):
     wb = load_workbook(template_path)
@@ -157,7 +164,11 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     targa = ""
                 ws_new["B14"].value = targa
                 dt = row1.get("Dt. Ingresso Prev.", "")
-                ws_new["H14"].value = format_hhmm(dt)
+                tipo_ingaggio_val = str(row1.get("Tipo Ingaggio", "")).upper()
+                if "SPOLE" in tipo_ingaggio_val:
+                    set_spola_style(ws_new, "H14")
+                else:
+                    ws_new["H14"].value = format_hhmm(dt)
                 ws_new["B22"].value = clean_excel_text(row1.get("Viaggio", ""))
                 ws_new["H22"].value = format_ddmm(dt)
                 ws_new["B29"].value = f"{clean_excel_text(row1.get('Sequenza', ''))} [IT]"
@@ -187,7 +198,11 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     targa = ""
                 ws_new["B46"].value = targa
                 dt = row2.get("Dt. Ingresso Prev.", "")
-                ws_new["H46"].value = format_hhmm(dt)
+                tipo_ingaggio_val2 = str(row2.get("Tipo Ingaggio", "")).upper()
+                if "SPOLE" in tipo_ingaggio_val2:
+                    set_spola_style(ws_new, "H46")
+                else:
+                    ws_new["H46"].value = format_hhmm(dt)
                 ws_new["B54"].value = clean_excel_text(row2.get("Viaggio", ""))
                 ws_new["H54"].value = format_ddmm(dt)
                 ws_new["B61"].value = f"{clean_excel_text(row2.get('Sequenza', ''))} [IT]"
@@ -217,10 +232,10 @@ def main():
     
     with col2:
         st.subheader("Filtri")
-        filtro_sap_area = st.selectbox("Area SAP", ["Italia", "Estero", "Tutti"])
-        filtro_sap_rimorchio = st.selectbox("Rimorchio SAP", ["A Piazzale", "Orario Fisso", "Tutti"])
-        filtro_dpe_tipo_ingaggio = st.selectbox("Tipo Ingaggio DPE", ["Viaggi", "Spole", "Rifugio", "Tutti"])
-        filtro_dpe_tipo_gestione = st.selectbox("Tipo Gestione DPE", ["A Piazzale", "Orario Fisso", "Tutti"])
+        filtro_sap_area = st.selectbox("Area SAP", ["Tutti", "Italia", "Estero"])
+        filtro_sap_rimorchio = st.selectbox("Rimorchio SAP", ["Tutti", "A Piazzale", "Orario Fisso"])
+        filtro_dpe_tipo_ingaggio = st.selectbox("Tipo Ingaggio DPE", ["Tutti", "Viaggi", "Spole", "Rifugio"])
+        filtro_dpe_tipo_gestione = st.selectbox("Tipo Gestione DPE", ["Tutti", "A Piazzale", "Orario Fisso"])
     
     col3, col4 = st.columns(2)
     
