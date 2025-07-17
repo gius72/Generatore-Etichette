@@ -219,12 +219,15 @@ def main():
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 template_path = tmp.name
                 tmp.write(template_file.read())
+                st.info("Template personalizzato caricato.")
         else:
-            # Usa il template dal repository
-            template_path = os.path.join(os.path.dirname(__file__), "..", "template", "template.xlsx")
-            if not os.path.exists(template_path):
-                st.error("Template etichette non trovato. Caricalo manualmente.")
-                return
+            template_path = os.path.join(os.path.dirname(__file__), "template", "template.xlsx")
+            if os.path.exists(template_path):
+               st.info("Template di default caricato automaticamente.")
+        else:
+               st.error("Template etichette non trovato nella cartella 'template'. Caricalo manualmente o contatta l’amministratore.")
+               return
+
         df_finale = pd.DataFrame()
         if stampa_sap and sap_file is not None:
             df_sap = pd.read_excel(sap_file)
