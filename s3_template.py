@@ -14,7 +14,6 @@ def get_template_from_url():
     
     try:
         # Scarica il file
-        st.info(f"Tentativo di download da: {template_url}")
         response = requests.get(template_url, timeout=15)
         response.raise_for_status()  # Solleva un'eccezione per errori HTTP
         
@@ -22,7 +21,6 @@ def get_template_from_url():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
             template_path = tmp.name
             tmp.write(response.content)
-            st.success(f"Template scaricato con successo ({len(response.content)} bytes)")
         
         return template_path
     except Exception as e:

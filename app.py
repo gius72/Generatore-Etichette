@@ -134,51 +134,13 @@ def set_spola_style(ws, cell):
     ws[cell].fill = PatternFill("solid", fgColor="808080")
     ws[cell].alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
-def configure_template_for_a4(wb):
-    """Configura il template per la stampa centrata su foglio A4"""
-    for ws in wb.worksheets:
-        # Imposta le dimensioni del foglio A4
-        ws.page_setup.paperSize = ws.PAPERSIZE_A4
-        
-        # Centra orizzontalmente e verticalmente
-        ws.page_setup.horizontalCentered = True
-        ws.page_setup.verticalCentered = True
-        
-        # Imposta i margini (in pollici)
-        ws.page_margins.left = 0.5
-        ws.page_margins.right = 0.5
-        ws.page_margins.top = 0.5
-        ws.page_margins.bottom = 0.5
-        ws.page_margins.header = 0.3
-        ws.page_margins.footer = 0.3
-        
-        # Imposta la scala di stampa
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
-    
-    return wb
-
 def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_ingaggio):
     wb = load_workbook(template_path)
     ws_template = wb.active
-    
-    # Configura il template per la stampa su A4
-    wb = configure_template_for_a4(wb)
     total = len(df)
     for i in range(0, total, 2):
         ws_new = wb.copy_worksheet(ws_template)
         ws_new.title = f"Etichette_{(i // 2) + 1}"
-        
-        # Configura anche il nuovo foglio per la stampa su A4
-        ws_new.page_setup.paperSize = ws_new.PAPERSIZE_A4
-        ws_new.page_setup.horizontalCentered = True
-        ws_new.page_setup.verticalCentered = True
-        ws_new.page_margins.left = 0.5
-        ws_new.page_margins.right = 0.5
-        ws_new.page_margins.top = 0.5
-        ws_new.page_margins.bottom = 0.5
-        ws_new.page_setup.fitToWidth = 1
-        ws_new.page_setup.fitToHeight = 1
         
         # Configura anche il nuovo foglio per la stampa su A4
         ws_new.page_setup.paperSize = ws_new.PAPERSIZE_A4
@@ -305,11 +267,11 @@ def main():
                 st.success("Utilizzo del template caricato dall'utente.")
         else:
             try:
-                # Prova a scaricare il template da Dropbox
+                # Prova a scaricare il template da GitHub
                 template_path = get_template_from_url()
-                st.success("Utilizzo del template da Dropbox.")
+                st.success("Template scaricato con successo.")
             except Exception as e:
-                st.error(f"Non è stato possibile scaricare il template da Dropbox: {e}")
+                st.error(f"Non è stato possibile scaricare il template: {e}")
                 st.info("Carica manualmente un template usando il campo 'Carica template etichette'.")
                 return
                 
