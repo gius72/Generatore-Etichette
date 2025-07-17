@@ -134,13 +134,62 @@ def set_spola_style(ws, cell):
     ws[cell].fill = PatternFill("solid", fgColor="808080")
     ws[cell].alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
+def configure_template_for_a4(wb):
+    """Configura il template per la stampa centrata su foglio A4"""
+    for ws in wb.worksheets:
+        # Imposta le dimensioni del foglio A4
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        
+        # Centra orizzontalmente e verticalmente
+        ws.page_setup.horizontalCentered = True
+        ws.page_setup.verticalCentered = True
+        
+        # Imposta i margini (in pollici)
+        ws.page_margins.left = 0.5
+        ws.page_margins.right = 0.5
+        ws.page_margins.top = 0.5
+        ws.page_margins.bottom = 0.5
+        ws.page_margins.header = 0.3
+        ws.page_margins.footer = 0.3
+        
+        # Imposta la scala di stampa
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 1
+    
+    return wb
+
 def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_ingaggio):
     wb = load_workbook(template_path)
     ws_template = wb.active
+    
+    # Configura il template per la stampa su A4
+    wb = configure_template_for_a4(wb)
     total = len(df)
     for i in range(0, total, 2):
         ws_new = wb.copy_worksheet(ws_template)
         ws_new.title = f"Etichette_{(i // 2) + 1}"
+        
+        # Configura anche il nuovo foglio per la stampa su A4
+        ws_new.page_setup.paperSize = ws_new.PAPERSIZE_A4
+        ws_new.page_setup.horizontalCentered = True
+        ws_new.page_setup.verticalCentered = True
+        ws_new.page_margins.left = 0.5
+        ws_new.page_margins.right = 0.5
+        ws_new.page_margins.top = 0.5
+        ws_new.page_margins.bottom = 0.5
+        ws_new.page_setup.fitToWidth = 1
+        ws_new.page_setup.fitToHeight = 1
+        
+        # Configura anche il nuovo foglio per la stampa su A4
+        ws_new.page_setup.paperSize = ws_new.PAPERSIZE_A4
+        ws_new.page_setup.horizontalCentered = True
+        ws_new.page_setup.verticalCentered = True
+        ws_new.page_margins.left = 0.5
+        ws_new.page_margins.right = 0.5
+        ws_new.page_margins.top = 0.5
+        ws_new.page_margins.bottom = 0.5
+        ws_new.page_setup.fitToWidth = 1
+        ws_new.page_setup.fitToHeight = 1
         # --- ETICHETTA 1 ---
         if i < total:
             row1 = df.iloc[i]
@@ -360,10 +409,6 @@ def main():
             df_finale = pd.concat([sap_part, dpe_part], ignore_index=True)
             
         df_finale = elabora_numerazione(df_finale)
-        
-        # Mostra anteprima dei dati
-        st.subheader("Anteprima dati")
-        st.dataframe(df_finale.head(10))
         
         # Salva file
         with st.spinner("Generazione etichette in corso..."):
