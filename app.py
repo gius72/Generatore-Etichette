@@ -24,11 +24,7 @@ def filtra_sap(df, area, rimorchio):
         df = df[df["Rimorchio"].astype(str).str.contains("A Piazzale", na=False)]
     elif rimorchio == "Orario Fisso":
         df = df[df["Rimorchio"].astype(str).str.contains("Orario Fisso", na=False)]
-    elif rimorchio == "Tutti":
-        df = df[
-            df["Rimorchio"].astype(str).str.contains("A Piazzale", na=False) |
-            df["Rimorchio"].astype(str).str.contains("Orario Fisso", na=False)
-        ]
+    # Se è "Tutti", non applicare filtri sul rimorchio
     return df.reset_index(drop=True)
 
 def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
@@ -45,22 +41,21 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
     if not tipo_ingaggio_col or not tipo_gestione_col or not dt_ingresso_prev_col:
         st.error("Colonne richieste non trovate nel file DPE.")
         return pd.DataFrame()
-    if tipo_ingaggio == "Viaggi":
-        df = df[df[tipo_ingaggio_col].astype(str).str.contains("TRATTA", na=False, case=False)]
-    elif tipo_ingaggio == "Spole":
-        df = df[df[tipo_ingaggio_col].astype(str).str.contains("SPOLE", na=False, case=False)]
-    elif tipo_ingaggio == "Rifugio":
-        df = df[df[tipo_ingaggio_col].astype(str).str.contains("RIFUGIO", na=False, case=False)]
+    # Filtro per tipo ingaggio
+    if tipo_ingaggio != "Tutti":
+        if tipo_ingaggio == "Viaggi":
+            df = df[df[tipo_ingaggio_col].astype(str).str.contains("TRATTA", na=False, case=False)]
+        elif tipo_ingaggio == "Spole":
+            df = df[df[tipo_ingaggio_col].astype(str).str.contains("SPOLE", na=False, case=False)]
+        elif tipo_ingaggio == "Rifugio":
+            df = df[df[tipo_ingaggio_col].astype(str).str.contains("RIFUGIO", na=False, case=False)]
 
-    if tipo_gestione == "A Piazzale":
-        df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE"]
-    elif tipo_gestione == "Orario Fisso":
-        df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO"]
-    elif tipo_gestione == "Tutti":
-        df = df[
-            (df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE") |
-            (df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO")
-        ]
+    # Filtro per tipo gestione
+    if tipo_gestione != "Tutti":
+        if tipo_gestione == "A Piazzale":
+            df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "1 - A PIAZZALE"]
+        elif tipo_gestione == "Orario Fisso":
+            df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO"]
 
     rename_map = {}
     if trasportatore_col:
@@ -141,17 +136,6 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
     for i in range(0, total, 2):
         ws_new = wb.copy_worksheet(ws_template)
         ws_new.title = f"Etichette_{(i // 2) + 1}"
-        
-        # Configura anche il nuovo foglio per la stampa su A4
-        ws_new.page_setup.paperSize = ws_new.PAPERSIZE_A4
-        ws_new.page_setup.horizontalCentered = True
-        ws_new.page_setup.verticalCentered = True
-        ws_new.page_margins.left = 0.5
-        ws_new.page_margins.right = 0.5
-        ws_new.page_margins.top = 0.5
-        ws_new.page_margins.bottom = 0.5
-        ws_new.page_setup.fitToWidth = 1
-        ws_new.page_setup.fitToHeight = 1
         # --- ETICHETTA 1 ---
         if i < total:
             row1 = df.iloc[i]
@@ -264,12 +248,10 @@ def main():
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 template_path = tmp.name
                 tmp.write(template_file.read())
-                st.success("Utilizzo del template caricato dall'utente.")
         else:
             try:
                 # Prova a scaricare il template da GitHub
                 template_path = get_template_from_url()
-                st.success("Template scaricato con successo.")
             except Exception as e:
                 st.error(f"Non è stato possibile scaricare il template: {e}")
                 st.info("Carica manualmente un template usando il campo 'Carica template etichette'.")
@@ -290,11 +272,7 @@ def main():
                     encodings = ["utf-8", "cp1252", "iso-8859-1", "latin1"]
                     df_dpe = None
                     
-                    # Debug: mostra le prime righe del file
-                    dpe_file.seek(0)
-                    raw_content = dpe_file.read(500).decode('utf-8', errors='ignore')
-                    st.write("Prime 500 caratteri del file:")
-                    st.text(raw_content)
+                    # Riposiziona il puntatore all'inizio del file
                     dpe_file.seek(0)
                     
                     for sep in separators:
@@ -303,7 +281,8 @@ def main():
                                 dpe_file.seek(0)
                                 df_dpe = pd.read_csv(dpe_file, encoding=enc, sep=sep)
                                 if len(df_dpe.columns) > 1:
-                                    st.success(f"Caricato con separatore '{sep}' e encoding '{enc}' - {len(df_dpe.columns)} colonne")
+                                    # File caricato con successo
+                                    pass
                                     break
                             except Exception:
                                 continue
@@ -315,7 +294,6 @@ def main():
                         return
                 else:
                     df_dpe = pd.read_excel(dpe_file)
-                    st.success(f"File Excel caricato con successo! Colonne trovate: {len(df_dpe.columns)}")
             except Exception as e:
                 st.error(f"Errore durante il caricamento del file: {e}")
                 return
