@@ -1,0 +1,53 @@
+# File temporanei Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# File di ambiente
+.env
+.venv
+env/
+venv/
+ENV/
+
+# File di sistema
+.DS_Store
+Thumbs.db
+
+# File Excel temporanei
+~$*.xlsx
+~$*.xls
+
+# File temporanei
+*.tmp
+*.temp
+temp/
+
+# File di log
+*.log
+
+# File specifici dell'IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# File specifici dell'applicazione
+etichette_generate.xlsx
