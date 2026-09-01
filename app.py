@@ -207,6 +207,24 @@ def formato_viaggio_dpe(row):
     return viaggio
 
 
+def calcola_font_viaggio(testo, font_base=88, larghezza_cella_pt=700):
+    """
+    Calcola la dimensione font massima perché il testo stia in una riga
+    nella cella VIAGGIO (B:F unite).
+    - font_base: dimensione usata quando il testo è corto (viaggio singolo)
+    - larghezza_cella_pt: larghezza approssimativa della cella unita in punti
+      (colonne B+C+D+E+F: 11.43+13+13+13+64.43 ≈ 115 char-width → *6.5 ≈ 700pt)
+    Ogni carattere Arial occupa circa font_size * 0.55 pt di larghezza.
+    """
+    if not testo:
+        return font_base
+    n_chars = len(testo)
+    # font massimo = larghezza_cella / (n_chars * 0.55)
+    font_max = int(larghezza_cella_pt / (n_chars * 0.55))
+    # Non superiamo il font base e non scendiamo sotto 14pt (leggibilità minima)
+    return max(14, min(font_base, font_max))
+
+
 def format_hhmm(value):
     """Formatta i valori di tempo in formato HH:MM."""
     if pd.isna(value) or value == "":
@@ -322,7 +340,10 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     ws_new["H14"].value = format_hhmm(dt)
                     ws_new["H14"].alignment = Alignment(wrap_text=False)
 
-                ws_new["B22"].value = formato_viaggio_dpe(row1)
+                viaggio_text = formato_viaggio_dpe(row1)
+                ws_new["B22"].value = viaggio_text
+                ws_new["B22"].font  = Font(name="Lato Black", size=calcola_font_viaggio(viaggio_text), bold=True)
+                ws_new["B22"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
                 ws_new["H22"].value = format_ddmm(dt)
                 ws_new["B29"].value = f"{clean_excel_text(row1.get('Sequenza', ''))} [IT]"
 
@@ -361,7 +382,10 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     ws_new["H46"].value = format_hhmm(dt)
                     ws_new["H46"].alignment = Alignment(wrap_text=False)
 
-                ws_new["B54"].value = formato_viaggio_dpe(row2)
+                viaggio_text = formato_viaggio_dpe(row2)
+                ws_new["B54"].value = viaggio_text
+                ws_new["B54"].font  = Font(name="Lato Black", size=calcola_font_viaggio(viaggio_text), bold=True)
+                ws_new["B54"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
                 ws_new["H54"].value = format_ddmm(dt)
                 ws_new["H54"].alignment = Alignment(wrap_text=False)
                 ws_new["B61"].value = f"{clean_excel_text(row2.get('Sequenza', ''))} [IT]"
