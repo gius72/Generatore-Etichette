@@ -433,7 +433,10 @@ def main():
         # Avviso se si usano filtri ATL senza file ATL
         usa_filtro_atl = (filtro_sap_atl != "Tutti" or filtro_dpe_atl != "Tutti")
         if usa_filtro_atl and atl_file is None:
-            st.warning("Hai selezionato un filtro ATL ma non hai caricato il file ATL. Il filtro verrà ignorato.")
+            st.warning("Hai selezionato un filtro ATL ma non hai caricato il file ATL. I filtri ATL verranno ignorati.")
+            # Resetta i filtri ATL a "Tutti" per evitare comportamenti inattesi
+            filtro_sap_atl = "Tutti"
+            filtro_dpe_atl = "Tutti"
 
         # Caricamento template
         if template_file:
@@ -471,15 +474,16 @@ def main():
                 # Flag ATL
                 df_sap_filtered = applica_flag_atl(df_sap_filtered, viaggi_atl)
 
-                # Filtro ATL
-                if filtro_sap_atl == "Solo ATL" and viaggi_atl:
+                # Filtro ATL — applicato sempre se l'utente ha scelto un filtro,
+                # anche se viaggi_atl è vuoto (in quel caso "Solo ATL" → 0 righe)
+                if filtro_sap_atl == "Solo ATL" and atl_file is not None:
                     df_sap_filtered = df_sap_filtered[df_sap_filtered["is_atl"]]
-                elif filtro_sap_atl == "No ATL" and viaggi_atl:
+                elif filtro_sap_atl == "No ATL" and atl_file is not None:
                     df_sap_filtered = df_sap_filtered[~df_sap_filtered["is_atl"]]
 
                 # Ordina per ora di carico
                 if "Ora Carico da" in df_sap_filtered.columns:
-                    df_sap_filtered = df_sap_filtered.sort_values(by="Ora Carico da")
+                    df_sap_filtered = df_sap_filtered.sort_values(by="Ora Carico da", na_position="last")
 
                 # Marca l'origine
                 df_sap_filtered["_source"] = "SAP"
@@ -504,15 +508,17 @@ def main():
                 # Flag ATL
                 df_dpe_filtered = applica_flag_atl(df_dpe_filtered, viaggi_atl)
 
-                # Filtro ATL
-                if filtro_dpe_atl == "Solo ATL" and viaggi_atl:
+                # Filtro ATL — applicato sempre se l'utente ha scelto un filtro,
+                # anche se viaggi_atl è vuoto (in quel caso "Solo ATL" → 0 righe)
+                if filtro_dpe_atl == "Solo ATL" and atl_file is not None:
                     df_dpe_filtered = df_dpe_filtered[df_dpe_filtered["is_atl"]]
-                elif filtro_dpe_atl == "No ATL" and viaggi_atl:
+                elif filtro_dpe_atl == "No ATL" and atl_file is not None:
                     df_dpe_filtered = df_dpe_filtered[~df_dpe_filtered["is_atl"]]
 
-                # Ordina per data ingresso
+                # Il sort avviene già in filtra_dpe dopo il rename delle colonne.
+                # Qui riapplichiamo con na_position esplicito per robustezza.
                 if "Dt. Ingresso Prev." in df_dpe_filtered.columns:
-                    df_dpe_filtered = df_dpe_filtered.sort_values(by="Dt. Ingresso Prev.")
+                    df_dpe_filtered = df_dpe_filtered.sort_values(by="Dt. Ingresso Prev.", na_position="last")
 
                 # Marca l'origine
                 df_dpe_filtered["_source"] = "DPE"
