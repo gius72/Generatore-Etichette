@@ -272,7 +272,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         # --- ETICHETTA 1 ---
         if i < total:
             row1 = df.iloc[i]
-            if "DescrSpedizioniere" in row1.index:  # SAP
+            if row1.get("_source", "SAP") == "SAP":  # SAP
                 ws_new["B6"].value  = clean_excel_text(row1.get("DescrSpedizioniere", ""))
                 ws_new["B14"].value = clean_excel_text(row1.get("Numero Targa", ""))
                 ws_new["H14"].value = format_hhmm(row1.get("Ora Carico da", ""))
@@ -310,7 +310,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         # --- ETICHETTA 2 ---
         if i + 1 < total:
             row2 = df.iloc[i + 1]
-            if "DescrSpedizioniere" in row2.index:  # SAP
+            if row2.get("_source", "SAP") == "SAP":  # SAP
                 ws_new["B38"].value = clean_excel_text(row2.get("DescrSpedizioniere", ""))
                 ws_new["B46"].value = clean_excel_text(row2.get("Numero Targa", ""))
                 ws_new["H46"].value = format_hhmm(row2.get("Ora Carico da", ""))
