@@ -72,11 +72,14 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
     targa_col          = next((c for c in df.columns if "targa" in c.strip().lower() and "rimorchio" in c.strip().lower()), None)
     viaggio_col        = next((c for c in df.columns if "viaggio" in c.strip().lower()), None)
     sequenza_col       = next((c for c in df.columns if "sequenza" in c.strip().lower()), None)
-    note_ing_col       = next((c for c in df.columns if "note" in c.strip().lower() and "ing" in c.strip().lower()), None)
+    note_ing_col       = next((c for c in df.columns if "note" in c.strip().lower()), None)
 
     if not tipo_ingaggio_col or not tipo_gestione_col or not dt_ingresso_prev_col:
         st.error("Colonne richieste non trovate nel file DPE.")
         return pd.DataFrame()
+
+    if note_ing_col:
+        st.info(f"Colonna note trovata nel file DPE: '{note_ing_col}'")
 
     if tipo_ingaggio != "Tutti":
         if tipo_ingaggio == "Viaggi":
@@ -181,9 +184,13 @@ def elabora_numerazione(df):
 
 
 def clean_excel_text(value):
-    """Pulisce il testo per Excel rimuovendo caratteri indesiderati."""
+    """Pulisce il testo per Excel rimuovendo caratteri indesiderati.
+    Converte float interi (es. 5205.0) in interi (5205)."""
     if pd.isna(value):
         return ""
+    # Se è un float con parte decimale zero, converti in int prima di stringare
+    if isinstance(value, float) and value == int(value):
+        value = int(value)
     return str(value).replace('\r', '').replace('\n', '').strip()
 
 
