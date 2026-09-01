@@ -442,7 +442,8 @@ def main():
             else:
                 st.warning("File ATL caricato ma nessun viaggio trovato con Carico Automatico = 1.")
 
-        df_finale = pd.DataFrame()
+        df_sap_filtered = pd.DataFrame()
+        df_dpe_filtered = pd.DataFrame()
 
         # ----------------------------------------------------------------
         # Elaborazione SAP
@@ -461,8 +462,14 @@ def main():
                 elif filtro_sap_atl == "No ATL" and viaggi_atl:
                     df_sap_filtered = df_sap_filtered[~df_sap_filtered["is_atl"]]
 
+                # Ordina per ora di carico
+                if "Ora Carico da" in df_sap_filtered.columns:
+                    df_sap_filtered = df_sap_filtered.sort_values(by="Ora Carico da")
+
+                # Marca l'origine
+                df_sap_filtered["_source"] = "SAP"
+
                 st.info(f"Righe SAP dopo filtro: {len(df_sap_filtered)}")
-                df_finale = pd.concat([df_finale, df_sap_filtered], ignore_index=True)
             except Exception as e:
                 st.error(f"Errore durante il caricamento del file SAP: {e}")
                 return
@@ -488,58 +495,28 @@ def main():
                 elif filtro_dpe_atl == "No ATL" and viaggi_atl:
                     df_dpe_filtered = df_dpe_filtered[~df_dpe_filtered["is_atl"]]
 
+                # Ordina per data ingresso
+                if "Dt. Ingresso Prev." in df_dpe_filtered.columns:
+                    df_dpe_filtered = df_dpe_filtered.sort_values(by="Dt. Ingresso Prev.")
+
+                # Marca l'origine
+                df_dpe_filtered["_source"] = "DPE"
+
                 st.info(f"Righe DPE dopo filtro: {len(df_dpe_filtered)}")
-                df_finale = pd.concat([df_finale, df_dpe_filtered], ignore_index=True)
             except Exception as e:
                 st.error(f"Errore durante il caricamento del file DPE: {e}")
                 return
+
+        # ----------------------------------------------------------------
+        # Concatenazione — ogni df è già ordinato, _source traccia l'origine
+        # ----------------------------------------------------------------
+        df_finale = pd.concat([df_sap_filtered, df_dpe_filtered], ignore_index=True)
 
         if df_finale.empty:
             st.error("Nessun dato da elaborare dopo i filtri.")
             return
 
         st.info(f"Totale righe dopo concatenazione: {len(df_finale)}")
-
-        # ----------------------------------------------------------------
-        # Ordinamento
-        # ----------------------------------------------------------------
-        if stampa_sap and not stampa_dpe and "Ora Carico da" in df_finale.columns:
-            st.info("Ordino SAP su 'Ora Carico da' crescente.")
-            df_finale = df_finale.sort_values(by="Ora Carico da")
-        elif stampa_dpe and not stampa_sap and "Dt. Ingresso Prev." in [c.strip() for c in df_finale.columns]:
-            st.info("Ordino DPE su 'Dt. Ingresso Prev.' crescente.")
-            df_finale = df_finale.sort_values(by="Dt. Ingresso Prev.")
-        elif stampa_dpe and stampa_sap:
-            st.info("Ordino SAP e DPE separatamente e li concateno.")
-            if sap_file is not None:
-                df_sap_orig = pd.read_excel(sap_file)
-                sap_part = df_finale[df_finale.columns.intersection(df_sap_orig.columns)].copy()
-                if "Ora Carico da" in sap_part.columns:
-                    sap_part = sap_part.sort_values(by="Ora Carico da")
-            else:
-                sap_part = pd.DataFrame()
-
-            if dpe_file is not None:
-                if dpe_file.name.endswith(".csv"):
-                    dpe_file.seek(0)
-                    df_dpe_orig = carica_file_csv_robusto(dpe_file)
-                else:
-                    df_dpe_orig = pd.read_excel(dpe_file)
-
-                dpe_part = df_finale[df_finale.columns.intersection(df_dpe_orig.columns)].copy()
-                dpe_part.columns = [c.strip() for c in dpe_part.columns]
-                if "Dt. Ingresso Prev." in dpe_part.columns:
-                    dpe_part = dpe_part.sort_values(by="Dt. Ingresso Prev.")
-            else:
-                dpe_part = pd.DataFrame()
-
-            # Riporta is_atl nel df riordinato
-            is_atl_sap = df_finale.loc[df_finale.index.isin(sap_part.index), "is_atl"] if "is_atl" in df_finale.columns else pd.Series(False, index=sap_part.index)
-            is_atl_dpe = df_finale.loc[df_finale.index.isin(dpe_part.index), "is_atl"] if "is_atl" in df_finale.columns else pd.Series(False, index=dpe_part.index)
-            sap_part["is_atl"] = is_atl_sap.values if len(is_atl_sap) == len(sap_part) else False
-            dpe_part["is_atl"] = is_atl_dpe.values if len(is_atl_dpe) == len(dpe_part) else False
-
-            df_finale = pd.concat([sap_part, dpe_part], ignore_index=True)
 
         # Assicura che is_atl esista sempre
         if "is_atl" not in df_finale.columns:
