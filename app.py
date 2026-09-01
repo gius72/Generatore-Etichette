@@ -207,22 +207,14 @@ def formato_viaggio_dpe(row):
     return viaggio
 
 
-def calcola_font_viaggio(testo, font_base=88, larghezza_cella_pt=700):
+def calcola_font_viaggio(testo, font_base=88):
     """
-    Calcola la dimensione font massima perché il testo stia in una riga
-    nella cella VIAGGIO (B:F unite).
-    - font_base: dimensione usata quando il testo è corto (viaggio singolo)
-    - larghezza_cella_pt: larghezza approssimativa della cella unita in punti
-      (colonne B+C+D+E+F: 11.43+13+13+13+64.43 ≈ 115 char-width → *6.5 ≈ 700pt)
-    Ogni carattere Arial occupa circa font_size * 0.55 pt di larghezza.
+    Restituisce 57pt se il testo contiene una nota concatenata (parentesi),
+    altrimenti il font base 88pt.
     """
-    if not testo:
-        return font_base
-    n_chars = len(testo)
-    # font massimo = larghezza_cella / (n_chars * 0.55)
-    font_max = int(larghezza_cella_pt / (n_chars * 0.55))
-    # Non superiamo il font base e non scendiamo sotto 14pt (leggibilità minima)
-    return max(14, min(font_base, font_max))
+    if "(" in testo:
+        return 57
+    return font_base
 
 
 def format_hhmm(value):
