@@ -72,6 +72,7 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
     targa_col          = next((c for c in df.columns if "targa" in c.strip().lower() and "rimorchio" in c.strip().lower()), None)
     viaggio_col        = next((c for c in df.columns if "viaggio" in c.strip().lower()), None)
     sequenza_col       = next((c for c in df.columns if "sequenza" in c.strip().lower()), None)
+    note_ing_col       = next((c for c in df.columns if "note" in c.strip().lower() and "ing" in c.strip().lower()), None)
 
     if not tipo_ingaggio_col or not tipo_gestione_col or not dt_ingresso_prev_col:
         st.error("Colonne richieste non trovate nel file DPE.")
@@ -92,14 +93,15 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
             df = df[df[tipo_gestione_col].astype(str).str.strip().str.upper() == "2 - ORARIO FISSO"]
 
     rename_map = {}
-    if trasportatore_col:  rename_map[trasportatore_col]    = "Trasportatore"
-    if veicolo_col:        rename_map[veicolo_col]           = "Veicolo"
-    if targa_col:          rename_map[targa_col]             = "Targa Rimorchio Eff."
-    if viaggio_col:        rename_map[viaggio_col]           = "Viaggio"
-    if sequenza_col:       rename_map[sequenza_col]          = "Sequenza"
-    if tipo_gestione_col:  rename_map[tipo_gestione_col]     = "Tipo Gestione"
-    if tipo_ingaggio_col:  rename_map[tipo_ingaggio_col]     = "Tipo Ingaggio"
-    if dt_ingresso_prev_col: rename_map[dt_ingresso_prev_col] = "Dt. Ingresso Prev."
+    if trasportatore_col:  rename_map[trasportatore_col]      = "Trasportatore"
+    if veicolo_col:        rename_map[veicolo_col]             = "Veicolo"
+    if targa_col:          rename_map[targa_col]               = "Targa Rimorchio Eff."
+    if viaggio_col:        rename_map[viaggio_col]             = "Viaggio"
+    if sequenza_col:       rename_map[sequenza_col]            = "Sequenza"
+    if tipo_gestione_col:  rename_map[tipo_gestione_col]       = "Tipo Gestione"
+    if tipo_ingaggio_col:  rename_map[tipo_ingaggio_col]       = "Tipo Ingaggio"
+    if dt_ingresso_prev_col: rename_map[dt_ingresso_prev_col]  = "Dt. Ingresso Prev."
+    if note_ing_col:       rename_map[note_ing_col]            = "Note Ing."
 
     df = df.rename(columns=rename_map)
     df = df.sort_values(by="Dt. Ingresso Prev.") if "Dt. Ingresso Prev." in df.columns else df
@@ -183,6 +185,19 @@ def clean_excel_text(value):
     if pd.isna(value):
         return ""
     return str(value).replace('\r', '').replace('\n', '').strip()
+
+
+def formato_viaggio_dpe(row):
+    """
+    Restituisce il valore da scrivere nella cella VIAGGIO per le etichette DPE.
+    Se 'Note Ing.' è presente e non vuota: 'NOTE (VIAGGIO)'
+    Altrimenti: 'VIAGGIO'
+    """
+    viaggio = clean_excel_text(row.get("Viaggio", ""))
+    nota    = clean_excel_text(row.get("Note Ing.", ""))
+    if nota:
+        return f"{nota} ({viaggio})"
+    return viaggio
 
 
 def format_hhmm(value):
@@ -300,7 +315,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     ws_new["H14"].value = format_hhmm(dt)
                     ws_new["H14"].alignment = Alignment(wrap_text=False)
 
-                ws_new["B22"].value = clean_excel_text(row1.get("Viaggio", ""))
+                ws_new["B22"].value = formato_viaggio_dpe(row1)
                 ws_new["H22"].value = format_ddmm(dt)
                 ws_new["B29"].value = f"{clean_excel_text(row1.get('Sequenza', ''))} [IT]"
 
@@ -339,7 +354,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
                     ws_new["H46"].value = format_hhmm(dt)
                     ws_new["H46"].alignment = Alignment(wrap_text=False)
 
-                ws_new["B54"].value = clean_excel_text(row2.get("Viaggio", ""))
+                ws_new["B54"].value = formato_viaggio_dpe(row2)
                 ws_new["H54"].value = format_ddmm(dt)
                 ws_new["H54"].alignment = Alignment(wrap_text=False)
                 ws_new["B61"].value = f"{clean_excel_text(row2.get('Sequenza', ''))} [IT]"
