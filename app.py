@@ -72,14 +72,14 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
     targa_col          = next((c for c in df.columns if "targa" in c.strip().lower() and "rimorchio" in c.strip().lower()), None)
     viaggio_col        = next((c for c in df.columns if "viaggio" in c.strip().lower()), None)
     sequenza_col       = next((c for c in df.columns if "sequenza" in c.strip().lower()), None)
-    note_ing_col       = next((c for c in df.columns if "note" in c.strip().lower()), None)
+    note_ing_col       = next((c for c in df.columns if "note" in c.strip().lower() and "ing" in c.strip().lower()), None)
+    # Fallback: colonna che contiene solo "note" se quella con "ing" non esiste
+    if note_ing_col is None:
+        note_ing_col = next((c for c in df.columns if c.strip().lower() == "note"), None)
 
     if not tipo_ingaggio_col or not tipo_gestione_col or not dt_ingresso_prev_col:
         st.error("Colonne richieste non trovate nel file DPE.")
         return pd.DataFrame()
-
-    if note_ing_col:
-        st.info(f"Colonna note trovata nel file DPE: '{note_ing_col}'")
 
     if tipo_ingaggio != "Tutti":
         if tipo_ingaggio == "Viaggi":
@@ -107,7 +107,7 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
     if note_ing_col:       rename_map[note_ing_col]            = "Note Ing."
 
     df = df.rename(columns=rename_map)
-    df = df.sort_values(by="Dt. Ingresso Prev.") if "Dt. Ingresso Prev." in df.columns else df
+    # Sort nel main con na_position="last" — qui non serve
     return df.reset_index(drop=True)
 
 
@@ -305,8 +305,8 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         ws_new.title = f"Etichette_{(i // 2) + 1}"
 
         # Flag ATL per le due etichette del foglio
-        is_atl_1 = bool(df.iloc[i].get("is_atl", False))   if i     < total else False
-        is_atl_2 = bool(df.iloc[i+1].get("is_atl", False)) if i + 1 < total else False
+        is_atl_1 = bool(df.iloc[i].get("is_atl", False))       if i     < total else False
+        is_atl_2 = bool(df.iloc[i + 1].get("is_atl", False))   if i + 1 < total else False
 
         # Stampa cella ATL se necessario
         if is_atl_1:
