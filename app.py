@@ -134,16 +134,29 @@ def carica_atl(atl_file):
         else:
             df_atl = pd.read_excel(atl_file)
 
-        # Trova le colonne in modo flessibile (case-insensitive, strip spazi)
-        nr_viaggio_col    = next((c for c in df_atl.columns if "nr" in c.strip().lower() and "viaggio" in c.strip().lower()), None)
-        carico_auto_col   = next((c for c in df_atl.columns if "carico" in c.strip().lower() and "automatico" in c.strip().lower()), None)
+        # Trova colonna numero viaggio: "Nr. Viaggio" o "Numero Viaggio" (case-insensitive)
+        nr_viaggio_col = next((
+            c for c in df_atl.columns
+            if ("nr" in c.strip().lower() and "viaggio" in c.strip().lower())
+            or ("numero" in c.strip().lower() and "viaggio" in c.strip().lower())
+        ), None)
+
+        # Trova colonna flag: "Carico Automatico" o "Eligible" (case-insensitive)
+        carico_auto_col = next((
+            c for c in df_atl.columns
+            if ("carico" in c.strip().lower() and "automatico" in c.strip().lower())
+            or ("eligible" in c.strip().lower())
+        ), None)
 
         if nr_viaggio_col is None or carico_auto_col is None:
             st.error(f"File ATL: colonne non trovate. Colonne presenti: {list(df_atl.columns)}")
             return set()
 
-        # Filtra solo le righe con Carico Automatico == 1
-        df_atl_filtrato = df_atl[df_atl[carico_auto_col].astype(str).str.strip() == "1"]
+        # Valori considerati "attivo" per Carico Automatico o Eligible
+        valori_attivi = {"1", "y", "yes", "true", "si", "sì"}
+        df_atl_filtrato = df_atl[
+            df_atl[carico_auto_col].astype(str).str.strip().str.lower().isin(valori_attivi)
+        ]
 
         # Restituisce un set di Nr. Viaggio (come stringhe normalizzate)
         viaggi_atl = set(df_atl_filtrato[nr_viaggio_col].astype(str).str.strip())
