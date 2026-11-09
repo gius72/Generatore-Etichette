@@ -51,3 +51,6 @@ temp/
 
 # File specifici dell'applicazione
 etichette_generate.xlsx
+
+# Dati operativi locali (contengono dati reali: non versionare)
+File Etichette/

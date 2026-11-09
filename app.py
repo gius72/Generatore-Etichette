@@ -115,24 +115,127 @@ def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
 # Funzione ATL
 # ---------------------------------------------------------------------------
 
+# Quante righe iniziali scansionare per trovare l'intestazione del file ATL
+ATL_MAX_RIGHE_INTESTAZIONE = 10
+
+
+def _intestazione_viaggio(valore):
+    """True se il valore sembra l'intestazione della colonna viaggio."""
+    testo = str(valore).strip().lower()
+    return "viaggio" in testo and ("nr" in testo or "numero" in testo)
+
+
+def _intestazione_flag(valore):
+    """True se il valore sembra l'intestazione della colonna flag ATL."""
+    testo = str(valore).strip().lower()
+    return ("carico" in testo and "automatico" in testo) or ("eligible" in testo)
+
+
+def _leggi_atl_grezzo(atl_file):
+    """
+    Legge il file ATL senza assumere che l'intestazione sia la prima riga
+    (header=None). Prova prima Excel, poi CSV con diversi separatori ed encoding.
+    Restituisce un DataFrame grezzo oppure None.
+    """
+    nome_file = str(getattr(atl_file, "name", "")).lower()
+
+    if nome_file.endswith(".csv"):
+        for sep in [";", ",", "\t", "|"]:
+            for enc in ["utf-8", "cp1252", "iso-8859-1", "latin1"]:
+                try:
+                    atl_file.seek(0)
+                    df_grezzo = pd.read_csv(atl_file, sep=sep, encoding=enc, header=None)
+                    if len(df_grezzo.columns) > 1:
+                        return df_grezzo
+                except Exception:
+                    continue
+        return None
+
+    try:
+        atl_file.seek(0)
+        return pd.read_excel(atl_file, header=None)
+    except Exception:
+        return None
+
+
+def _rileva_riga_intestazione(df_grezzo, max_righe=ATL_MAX_RIGHE_INTESTAZIONE):
+    """
+    Cerca nelle prime righe del file quella che contiene le intestazioni ATL.
+    Restituisce l'indice (0-based) della riga di intestazione, oppure None.
+    Preferisce la riga che contiene sia la colonna viaggio sia quella flag.
+    """
+    candidati = []
+    for idx in range(min(len(df_grezzo), max_righe)):
+        valori = df_grezzo.iloc[idx].tolist()
+        if any(_intestazione_viaggio(v) for v in valori):
+            ha_flag = any(_intestazione_flag(v) for v in valori)
+            candidati.append((idx, ha_flag))
+
+    for idx, ha_flag in candidati:
+        if ha_flag:
+            return idx
+    if candidati:
+        return candidati[0][0]
+    return None
+
+
+def _intestazioni_univoche(valori):
+    """Converte una riga di intestazione in un elenco di nomi colonna univoci."""
+    intestazioni = []
+    for i, v in enumerate(valori):
+        nome = "" if pd.isna(v) else str(v).strip()
+        if not nome:
+            nome = f"Col_{i + 1}"
+        base, suffisso = nome, 2
+        while nome in intestazioni:
+            nome = f"{base}_{suffisso}"
+            suffisso += 1
+        intestazioni.append(nome)
+    return intestazioni
+
+
+def leggi_tabella_atl(atl_file):
+    """
+    Legge il file ATL (Excel o CSV) rilevando automaticamente la riga di
+    intestazione: può essere la prima riga oppure una riga successiva
+    (es. la quarta, dopo alcune righe di preambolo).
+
+    Restituisce la tupla (df, numero_riga_intestazione 1-based) oppure (None, None).
+    """
+    df_grezzo = _leggi_atl_grezzo(atl_file)
+    if df_grezzo is None or df_grezzo.empty:
+        st.error("File ATL: impossibile leggere il file o file vuoto.")
+        return None, None
+
+    idx_intestazione = _rileva_riga_intestazione(df_grezzo)
+    if idx_intestazione is None:
+        st.error(
+            "File ATL: intestazione non trovata nelle prime "
+            f"{ATL_MAX_RIGHE_INTESTAZIONE} righe. Prime righe lette:\n"
+            f"{df_grezzo.head(5).to_string(index=False, header=False)}"
+        )
+        return None, None
+
+    df_atl = df_grezzo.iloc[idx_intestazione + 1:].copy()
+    df_atl.columns = _intestazioni_univoche(df_grezzo.iloc[idx_intestazione].tolist())
+    df_atl = df_atl.reset_index(drop=True)
+
+    return df_atl, idx_intestazione + 1
+
+
 def carica_atl(atl_file):
     """
     Legge il file ATL (Excel o CSV) e restituisce un set di valori
     della colonna 'Nr. Viaggio' dove 'Carico Automatico' == 1.
+    La riga di intestazione viene rilevata automaticamente (prima riga o successive).
     """
     try:
-        if atl_file.name.lower().endswith(".csv"):
-            try:
-                atl_file.seek(0)
-                df_atl = pd.read_csv(atl_file, sep=";", encoding="utf-8")
-                if len(df_atl.columns) <= 1:
-                    atl_file.seek(0)
-                    df_atl = pd.read_csv(atl_file, sep=",", encoding="utf-8")
-            except Exception:
-                atl_file.seek(0)
-                df_atl = pd.read_csv(atl_file, sep=";", encoding="cp1252")
-        else:
-            df_atl = pd.read_excel(atl_file)
+        df_atl, riga_intestazione = leggi_tabella_atl(atl_file)
+        if df_atl is None:
+            return set()
+
+        if riga_intestazione > 1:
+            st.info(f"File ATL: intestazione rilevata alla riga {riga_intestazione}.")
 
         # Trova colonna numero viaggio: "Nr. Viaggio" o "Numero Viaggio" (case-insensitive)
         nr_viaggio_col = next((
@@ -149,7 +252,10 @@ def carica_atl(atl_file):
         ), None)
 
         if nr_viaggio_col is None or carico_auto_col is None:
-            st.error(f"File ATL: colonne non trovate. Colonne presenti: {list(df_atl.columns)}")
+            st.error(
+                f"File ATL: colonne non trovate (intestazione letta alla riga {riga_intestazione}). "
+                f"Colonne presenti: {list(df_atl.columns)}"
+            )
             return set()
 
         # Valori considerati "attivo" per Carico Automatico o Eligible
@@ -158,8 +264,10 @@ def carica_atl(atl_file):
             df_atl[carico_auto_col].astype(str).str.strip().str.lower().isin(valori_attivi)
         ]
 
-        # Restituisce un set di Nr. Viaggio (come stringhe normalizzate)
+        # Restituisce un set di Nr. Viaggio (come stringhe normalizzate),
+        # scartando le righe vuote in coda al file
         viaggi_atl = set(df_atl_filtrato[nr_viaggio_col].astype(str).str.strip())
+        viaggi_atl -= {"", "nan", "none"}
         return viaggi_atl
 
     except Exception as e:
