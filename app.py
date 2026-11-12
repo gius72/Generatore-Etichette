@@ -30,6 +30,17 @@ ATL_BORDER_BOTTOM = Border(
 )
 
 # ---------------------------------------------------------------------------
+# Costanti orario SAP (viaggi NUMBER 1)
+# ---------------------------------------------------------------------------
+NUMBER1_SPEDIZIONIERE = "NUMBER 1 LOGISTICS GROUP S.P.A."
+ORA_SAP_BORDER = Border(
+    left=Side(style="medium"),
+    right=Side(style="medium"),
+    top=Side(style="medium"),
+    bottom=Side(style="medium"),
+)
+
+# ---------------------------------------------------------------------------
 # Funzioni di filtro
 # ---------------------------------------------------------------------------
 
@@ -58,6 +69,28 @@ def filtra_sap(df, area, rimorchio):
             df = df[df["Rimorchio"].astype(str).str.contains("Orario Fisso", na=False)]
 
     return df.reset_index(drop=True)
+
+
+def estrai_orari_number1(df_sap):
+    """
+    Restituisce {viaggio: orario di carico SAP} per le righe con
+    DescrSpedizioniere = NUMBER 1 LOGISTICS GROUP S.P.A.
+
+    Queste righe non generano etichette SAP (l'orario utile viene preso dal DPE),
+    ma l'orario SAP va comunque stampato in un riquadro sull'etichetta DPE.
+    """
+    colonne_necessarie = {"DescrSpedizioniere", "Viaggio", "Ora Carico da"}
+    if not colonne_necessarie.issubset(set(df_sap.columns)):
+        return {}
+
+    mask  = df_sap["DescrSpedizioniere"].astype(str).str.strip() == NUMBER1_SPEDIZIONIERE
+    orari = {}
+    for _, riga in df_sap[mask].iterrows():
+        viaggio = clean_excel_text(riga.get("Viaggio", ""))
+        if not viaggio or viaggio in orari:
+            continue
+        orari[viaggio] = riga.get("Ora Carico da", "")
+    return orari
 
 
 def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
@@ -398,6 +431,33 @@ def scrivi_atl_cell(ws, cella_top, cella_bottom, merge_range):
     ws[cella_bottom].border = ATL_BORDER_BOTTOM
 
 
+def scrivi_orario_sap_cell(ws, cella_top, cella_bottom, merge_range, orario, font_orario):
+    """
+    Scrive il riquadro con l'orario SAP in D2:E3 (etichetta 1) o D34:E35
+    (etichetta 2), cioe' in alto a sinistra del riquadro ATL.
+    - Stessa altezza righe del riquadro ATL, merge, font dell'orario SAP (H14)
+      e bordo su tutto il perimetro.
+    """
+    top_row    = int(re.sub(r"[A-Z]", "", cella_top))
+    bottom_row = int(re.sub(r"[A-Z]", "", cella_bottom))
+    ws.row_dimensions[top_row].height    = ATL_ROW_HEIGHT
+    ws.row_dimensions[bottom_row].height = ATL_ROW_HEIGHT
+
+    ws.merge_cells(merge_range)
+
+    # Bordo su tutte le celle del riquadro, altrimenti il perimetro resta incompleto
+    for riga in ws[merge_range]:
+        for cella in riga:
+            cella.border = ORA_SAP_BORDER
+
+    cella = ws[cella_top]
+    cella.value     = orario
+    cella.font      = Font(name=font_orario.name, size=font_orario.size,
+                           bold=font_orario.bold)
+    cella.alignment = Alignment(horizontal="center", vertical="center")
+    cella.border    = ORA_SAP_BORDER
+
+
 # ---------------------------------------------------------------------------
 # Generazione etichette
 # ---------------------------------------------------------------------------
@@ -407,6 +467,9 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
     wb = load_workbook(template_path)
     ws_template = wb.active
     total = len(df)
+
+    # Font dell'orario SAP nel template (H14): stesso tipo/dimensione nel riquadro
+    font_orario = ws_template["H14"].font
 
     for i in range(0, total, 2):
         ws_new = wb.copy_worksheet(ws_template)
@@ -421,6 +484,15 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
             scrivi_atl_cell(ws_new, "F2",  "F3",  "F2:F3")
         if is_atl_2:
             scrivi_atl_cell(ws_new, "F34", "F35", "F34:F35")
+
+        # Riquadro orario SAP (viaggi NUMBER 1), a sinistra del riquadro ATL
+        ora_sap_1 = format_hhmm(df.iloc[i].get("Ora SAP", ""))     if i     < total else ""
+        ora_sap_2 = format_hhmm(df.iloc[i + 1].get("Ora SAP", "")) if i + 1 < total else ""
+
+        if ora_sap_1:
+            scrivi_orario_sap_cell(ws_new, "D2",  "E3",  "D2:E3",   ora_sap_1, font_orario)
+        if ora_sap_2:
+            scrivi_orario_sap_cell(ws_new, "D34", "E35", "D34:E35", ora_sap_2, font_orario)
 
         # --- ETICHETTA 1 ---
         if i < total:
@@ -606,13 +678,28 @@ def main():
 
         df_sap_filtered = pd.DataFrame()
         df_dpe_filtered = pd.DataFrame()
+        orari_number1   = {}
 
         # ----------------------------------------------------------------
         # Elaborazione SAP
         # ----------------------------------------------------------------
-        if stampa_sap and sap_file is not None:
+        # Orari SAP dei viaggi NUMBER 1: servono anche con "Stampa SAP" disattivato
+        df_sap_grezzo = None
+        if sap_file is not None:
             try:
-                df_sap = pd.read_excel(sap_file)
+                sap_file.seek(0)
+                df_sap_grezzo = pd.read_excel(sap_file)
+                orari_number1 = estrai_orari_number1(df_sap_grezzo)
+                if orari_number1:
+                    st.info(f"Orari SAP per viaggi NUMBER 1: {len(orari_number1)}")
+            except Exception as e:
+                st.error(f"Errore durante il caricamento del file SAP: {e}")
+                return
+
+        if stampa_sap and df_sap_grezzo is not None:
+            try:
+                df_sap = df_sap_grezzo
+
                 df_sap_filtered = filtra_sap(df_sap, filtro_sap_area, filtro_sap_rimorchio)
 
                 # Flag ATL
@@ -686,6 +773,14 @@ def main():
         # Assicura che is_atl esista sempre
         if "is_atl" not in df_finale.columns:
             df_finale["is_atl"] = False
+
+        # Orario SAP (viaggi NUMBER 1) da stampare sulle etichette DPE
+        if orari_number1 and "Viaggio" in df_finale.columns:
+            df_finale["Ora SAP"] = (
+                df_finale["Viaggio"].astype(str).str.strip().map(orari_number1)
+            )
+        else:
+            df_finale["Ora SAP"] = ""
 
         # Numerazione pari/dispari
         st.info("Applico numerazione pari/dispari...")
