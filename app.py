@@ -40,6 +40,15 @@ ORA_SAP_BORDER = Border(
     bottom=Side(style="medium"),
 )
 
+# Larghezza (unita' Excel) della fessura tra riquadro orario e riquadro ATL
+ORA_SAP_LARGHEZZA_FESSURA = 4.0
+
+# Larghezze delle colonne del template (fallback se la dimensione non e' definita)
+LARGHEZZE_TEMPLATE = {
+    "A": 5.42578125, "B": 11.42578125, "C": 11.42578125, "D": 11.42578125,
+    "E": 11.42578125, "F": 64.42578125, "G": 1.5703125, "H": 22.85546875,
+}
+
 # ---------------------------------------------------------------------------
 # Funzioni di filtro
 # ---------------------------------------------------------------------------
@@ -431,13 +440,59 @@ def scrivi_atl_cell(ws, cella_top, cella_bottom, merge_range):
     ws[cella_bottom].border = ATL_BORDER_BOTTOM
 
 
+def _larghezza_effettiva(ws, lettera):
+    """
+    Larghezza effettiva di una colonna, tenendo conto che il template definisce
+    le larghezze come range (es. <col min="2" max="5"/> copre B..E).
+    """
+    indice = "ABCDEFGH".index(lettera) + 1
+    for dim in ws.column_dimensions.values():
+        if (dim.width is not None and dim.min is not None and dim.max is not None
+                and dim.min <= indice <= dim.max):
+            return dim.width
+    return LARGHEZZE_TEMPLATE[lettera]
+
+
+def crea_fessura_orario(ws):
+    """
+    Crea una piccola fessura tra il riquadro orario e il riquadro ATL:
+    restringe la colonna E e sposta la larghezza tolta sulla colonna A
+    (fuori dall'area di stampa B1:H63), cosi' l'etichetta da B a H resta identica.
+    Idempotente e sicura sui range di colonne: riscrive le larghezze per singola
+    colonna (evita <col> sovrapposti che Excel interpreta in modo ambiguo).
+    """
+    if getattr(ws, "_fessura_orario", False):
+        return
+
+    larghezze = {lettera: _larghezza_effettiva(ws, lettera) for lettera in "ABCDEFGH"}
+    if larghezze["E"] <= ORA_SAP_LARGHEZZA_FESSURA:
+        return
+
+    delta = larghezze["E"] - ORA_SAP_LARGHEZZA_FESSURA
+    larghezze["E"] = ORA_SAP_LARGHEZZA_FESSURA
+    larghezze["A"] += delta
+
+    for chiave in list(ws.column_dimensions):
+        del ws.column_dimensions[chiave]
+    for posizione, lettera in enumerate("ABCDEFGH", start=1):
+        dim = ws.column_dimensions[lettera]
+        dim.min = dim.max = posizione
+        dim.width = larghezze[lettera]   # customWidth e' derivato dalla width
+
+    ws._fessura_orario = True
+
+
 def scrivi_orario_sap_cell(ws, cella_top, cella_bottom, merge_range, orario, font_orario):
     """
-    Scrive il riquadro con l'orario SAP in D2:E3 (etichetta 1) o D34:E35
-    (etichetta 2), cioe' in alto a sinistra del riquadro ATL.
+    Scrive il riquadro con l'orario SAP in C2:D3 (etichetta 1) o C34:D35
+    (etichetta 2), cioe' in alto a sinistra del riquadro ATL, con la colonna E
+    che fa da fessura di separazione.
     - Stessa altezza righe del riquadro ATL, merge, font dell'orario SAP (H14)
       e bordo su tutto il perimetro.
     """
+    # Fessura tra riquadro orario e riquadro ATL
+    crea_fessura_orario(ws)
+
     top_row    = int(re.sub(r"[A-Z]", "", cella_top))
     bottom_row = int(re.sub(r"[A-Z]", "", cella_bottom))
     ws.row_dimensions[top_row].height    = ATL_ROW_HEIGHT
@@ -490,9 +545,9 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         ora_sap_2 = format_hhmm(df.iloc[i + 1].get("Ora SAP", "")) if i + 1 < total else ""
 
         if ora_sap_1:
-            scrivi_orario_sap_cell(ws_new, "D2",  "E3",  "D2:E3",   ora_sap_1, font_orario)
+            scrivi_orario_sap_cell(ws_new, "C2",  "D3",  "C2:D3",   ora_sap_1, font_orario)
         if ora_sap_2:
-            scrivi_orario_sap_cell(ws_new, "D34", "E35", "D34:E35", ora_sap_2, font_orario)
+            scrivi_orario_sap_cell(ws_new, "C34", "D35", "C34:D35", ora_sap_2, font_orario)
 
         # --- ETICHETTA 1 ---
         if i < total:
