@@ -544,6 +544,13 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         ora_sap_1 = format_hhmm(df.iloc[i].get("Ora SAP", ""))     if i     < total else ""
         ora_sap_2 = format_hhmm(df.iloc[i + 1].get("Ora SAP", "")) if i + 1 < total else ""
 
+        # Altezze uniformi delle fasce superiori: se una delle due etichette ha un
+        # riquadro (ATL o orario), entrambe devono avere la stessa altezza, altrimenti
+        # le due etichette non sono piu' a meta' foglio e il taglio taglia il contenuto.
+        if is_atl_1 or is_atl_2 or ora_sap_1 or ora_sap_2:
+            for riga in (2, 3, 34, 35):
+                ws_new.row_dimensions[riga].height = ATL_ROW_HEIGHT
+
         if ora_sap_1:
             scrivi_orario_sap_cell(ws_new, "C2",  "D3",  "C2:D3",   ora_sap_1, font_orario)
         if ora_sap_2:
