@@ -43,6 +43,12 @@ ORA_SAP_BORDER = Border(
 # Larghezza (unita' Excel) della fessura tra riquadro orario e riquadro ATL
 ORA_SAP_LARGHEZZA_FESSURA = 4.0
 
+# Area di stampa delle etichette generate (B2:H63): esclude il margine vuoto in alto
+# (riga 1). Va impostata su ogni foglio copiato perche' openpyxl non copia l'area di
+# stampa: cosi' tutti i fogli stampano esattamente le stesse righe, indipendentemente
+# dai riquadri presenti, e il taglio a meta' foglio cade sempre tra le due etichette.
+AREA_STAMPA_ETICHETTE = "B2:H63"
+
 # Larghezze delle colonne del template (fallback se la dimensione non e' definita)
 LARGHEZZE_TEMPLATE = {
     "A": 5.42578125, "B": 11.42578125, "C": 11.42578125, "D": 11.42578125,
@@ -529,6 +535,7 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
     for i in range(0, total, 2):
         ws_new = wb.copy_worksheet(ws_template)
         ws_new.title = f"Etichette_{(i // 2) + 1}"
+        ws_new.print_area = AREA_STAMPA_ETICHETTE
 
         # Flag ATL per le due etichette del foglio
         is_atl_1 = bool(df.iloc[i].get("is_atl", False))       if i     < total else False
