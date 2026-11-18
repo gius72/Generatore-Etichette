@@ -8,8 +8,8 @@ import tempfile
 import io
 import base64
 
-# Importa il template da GitHub
-from s3_template import get_template_from_url
+# Template incluso nel repository (uno per branch: main / test)
+from s3_template import get_template_path
 
 # ---------------------------------------------------------------------------
 # Costanti ATL
@@ -730,7 +730,7 @@ def main():
                 tmp.write(template_file.read())
         else:
             try:
-                template_path = get_template_from_url()
+                template_path = get_template_path()
             except Exception as e:
                 st.error(f"Non è stato possibile scaricare il template: {e}")
                 st.info("Carica manualmente un template usando il campo apposito.")
