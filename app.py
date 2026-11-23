@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 import re
@@ -10,6 +11,7 @@ import base64
 
 # Template incluso nel repository (uno per branch: main / test)
 from s3_template import get_template_path
+import golden_list
 
 # ---------------------------------------------------------------------------
 # Costanti ATL
@@ -48,6 +50,18 @@ ORA_SAP_LARGHEZZA_FESSURA = 4.0
 # stampa: cosi' tutti i fogli stampano esattamente le stesse righe, indipendentemente
 # dai riquadri presenti, e il taglio a meta' foglio cade sempre tra le due etichette.
 AREA_STAMPA_ETICHETTE = "B2:H63"
+
+# ---------------------------------------------------------------------------
+# Costanti riquadro tempi (Disponibilita' / Conferma / Chiusura)
+# ---------------------------------------------------------------------------
+TEMPI_FONT_NAME = "Lato Black"
+TEMPI_FONT_SIZE = 10
+TEMPI_BORDER = Border(
+    left=Side(style="medium"),
+    right=Side(style="medium"),
+    top=Side(style="medium"),
+    bottom=Side(style="medium"),
+)
 
 # Larghezze delle colonne del template (fallback se la dimensione non e' definita)
 LARGHEZZE_TEMPLATE = {
@@ -106,6 +120,158 @@ def estrai_orari_number1(df_sap):
             continue
         orari[viaggio] = riga.get("Ora Carico da", "")
     return orari
+
+
+def estrai_orari_sap(df_sap):
+    """
+    Restituisce {viaggio: Ora Carico da} per TUTTI i viaggi del file SAP.
+
+    Serve ai tempi di conferma/disponibilita'/chiusura: l'orario di programma e'
+    sempre quello SAP, anche quando l'etichetta viene generata dal file DPE.
+    """
+    if not {"Viaggio", "Ora Carico da"}.issubset(set(df_sap.columns)):
+        return {}
+
+    orari = {}
+    for _, riga in df_sap.iterrows():
+        viaggio = clean_excel_text(riga.get("Viaggio", ""))
+        if not viaggio or viaggio in orari:
+            continue
+        orari[viaggio] = riga.get("Ora Carico da", "")
+    return orari
+
+
+def _testo_riga(valore):
+    """Testo pulito da un valore di DataFrame (stringa vuota per NaN/None)."""
+    if valore is None:
+        return ""
+    try:
+        if pd.isna(valore):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(valore).strip()
+
+
+def tipo_viaggio(riga):
+    """'piazzale' / 'fisso' (orario fisso = diretto) / '' se non riconosciuto."""
+    for colonna in ("Rimorchio", "Tipo Gestione"):
+        testo = _testo_riga(riga.get(colonna, "")).lower()
+        if not testo:
+            continue
+        if "piazzale" in testo:
+            return "piazzale"
+        if "fisso" in testo or "diretto" in testo:
+            return "fisso"
+    return ""
+
+
+def _minuti_orario(orario):
+    """Minuti dalla mezzanotte, oppure None se l'orario non e' utilizzabile."""
+    if isinstance(orario, datetime.datetime):
+        return orario.hour * 60 + orario.minute
+    if isinstance(orario, datetime.time):
+        return orario.hour * 60 + orario.minute
+    testo = _testo_riga(orario)
+    if not testo or testo.lower() in ("nan", "nat", "none"):
+        return None
+    if ":" in testo:
+        parti = testo.split(":")
+        try:
+            return (int(parti[0]) * 60 + int(parti[1])) % (24 * 60)
+        except (TypeError, ValueError):
+            return None
+    try:
+        valore = float(testo)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= valore < 1:            # frazione di giornata (formato Excel)
+        return int(round(valore * 24 * 60)) % (24 * 60)
+    return None
+
+
+def _hhmm(minuti):
+    """Minuti dalla mezzanotte -> 'HH:MM'."""
+    minuti = int(minuti) % (24 * 60)
+    return f"{minuti // 60:02d}:{minuti % 60:02d}"
+
+
+def calcola_tempi(orario, tipo, golden, isola):
+    """
+    Tempi (disponibilita', conferma, chiusura) in 'HH:MM'.
+
+    P = orario di programma (Ora Carico da di SAP), uguale per tutti i viaggi.
+    - A Piazzale:                 DISP = P-12h, CONF = P-6h, CHIUS = P+3h
+    - Orario fisso e (golden o isola): DISP = --, CONF = P-4h, CHIUS = P+3h
+    - altri tipi: nessun riquadro.
+    """
+    minuti = _minuti_orario(orario)
+    if minuti is None or not tipo:
+        return "", "", ""
+    if tipo == "piazzale":
+        return _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti + 3 * 60)
+    if tipo == "fisso" and (golden or isola):
+        return "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 3 * 60)
+    return "", "", ""
+
+
+def aggiungi_tempi(df, liste):
+    """Aggiunge le colonne Disp / Conf / Chius / Regola (testo vuoto se non applicabile)."""
+    if df.empty:
+        for colonna in ("Disp", "Conf", "Chius", "Regola"):
+            df[colonna] = ""
+        return df
+
+    vettori = (liste or {}).get("vettori", [])
+    localita = (liste or {}).get("localita", {})
+    cache_vettori = {}
+
+    disp_lista, conf_lista, chius_lista, regola_lista = [], [], [], []
+    for _, riga in df.iterrows():
+        disp = conf = chius = regola = ""
+        try:
+            tipo = tipo_viaggio(riga)
+            if tipo:
+                vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
+                if vettore not in cache_vettori:
+                    cache_vettori[vettore] = golden_list.vettore_in_golden_list(vettore, vettori)[0]
+                golden = cache_vettori[vettore]
+                isola = golden_list.isola_destinazione(
+                    riga.get("Regione Finale", ""),
+                    riga.get("Sequenza fermate", "") or riga.get("Sequenza", ""),
+                    localita,
+                )
+                disp, conf, chius = calcola_tempi(riga.get("Ora Programmata", ""), tipo, golden, isola)
+                if tipo == "piazzale" and disp:
+                    regola = "A Piazzale"
+                elif conf:
+                    regola = f"Isola {isola}" if isola else "Golden list"
+        except Exception:
+            disp = conf = chius = regola = ""
+        disp_lista.append(disp)
+        conf_lista.append(conf)
+        chius_lista.append(chius)
+        regola_lista.append(regola)
+
+    df["Disp"] = disp_lista
+    df["Conf"] = conf_lista
+    df["Chius"] = chius_lista
+    df["Regola"] = regola_lista
+    return df
+
+
+def corrispondenze_golden(df, liste):
+    """Elenco (vettore, voce_lista, punteggio, trovato) per i vettori delle etichette."""
+    vettori = (liste or {}).get("vettori", [])
+    visti, righe = set(), []
+    for _, riga in df.iterrows():
+        vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
+        if not vettore or vettore in visti:
+            continue
+        visti.add(vettore)
+        trovato, voce, punteggio = golden_list.vettore_in_golden_list(vettore, vettori)
+        righe.append({"vettore": vettore, "voce_lista": voce, "punteggio": round(punteggio, 2), "trovato": trovato})
+    return righe
 
 
 def filtra_dpe(df, tipo_ingaggio, tipo_gestione):
@@ -519,6 +685,32 @@ def scrivi_orario_sap_cell(ws, cella_top, cella_bottom, merge_range, orario, fon
     cella.border    = ORA_SAP_BORDER
 
 
+def scrivi_tempi_cell(ws, cella_top, cella_bottom, merge_range, disp, conf, chius):
+    """
+    Riquadro con DISPONIBILITA' / CONFERMA / CHIUSURA in H2:H3 (etichetta 1) o
+    H34:H35 (etichetta 2), a destra del riquadro ATL. Le voci mancanti sono '—'.
+    """
+    top_row    = int(re.sub(r"[A-Z]", "", cella_top))
+    bottom_row = int(re.sub(r"[A-Z]", "", cella_bottom))
+    ws.row_dimensions[top_row].height    = ATL_ROW_HEIGHT
+    ws.row_dimensions[bottom_row].height = ATL_ROW_HEIGHT
+
+    ws.merge_cells(merge_range)
+    for riga in ws[merge_range]:
+        for cella in riga:
+            cella.border = TEMPI_BORDER
+
+    cella = ws[cella_top]
+    cella.value = "\n".join([
+        f"DISP  {disp or '—'}",
+        f"CONF  {conf or '—'}",
+        f"CHIUS {chius or '—'}",
+    ])
+    cella.font      = Font(name=TEMPI_FONT_NAME, size=TEMPI_FONT_SIZE, bold=True)
+    cella.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    cella.border    = TEMPI_BORDER
+
+
 # ---------------------------------------------------------------------------
 # Generazione etichette
 # ---------------------------------------------------------------------------
@@ -551,10 +743,24 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         ora_sap_1 = format_hhmm(df.iloc[i].get("Ora SAP", ""))     if i     < total else ""
         ora_sap_2 = format_hhmm(df.iloc[i + 1].get("Ora SAP", "")) if i + 1 < total else ""
 
+        # Riquadro tempi (Disponibilita' / Conferma / Chiusura), a destra dell'ATL
+        disp_1 = conf_1 = chius_1 = ""
+        disp_2 = conf_2 = chius_2 = ""
+        if i < total:
+            disp_1  = _testo_riga(df.iloc[i].get("Disp", ""))
+            conf_1  = _testo_riga(df.iloc[i].get("Conf", ""))
+            chius_1 = _testo_riga(df.iloc[i].get("Chius", ""))
+        if i + 1 < total:
+            disp_2  = _testo_riga(df.iloc[i + 1].get("Disp", ""))
+            conf_2  = _testo_riga(df.iloc[i + 1].get("Conf", ""))
+            chius_2 = _testo_riga(df.iloc[i + 1].get("Chius", ""))
+        ha_tempi_1 = bool(disp_1 or conf_1 or chius_1)
+        ha_tempi_2 = bool(disp_2 or conf_2 or chius_2)
+
         # Altezze uniformi delle fasce superiori: se una delle due etichette ha un
-        # riquadro (ATL o orario), entrambe devono avere la stessa altezza, altrimenti
-        # le due etichette non sono piu' a meta' foglio e il taglio taglia il contenuto.
-        if is_atl_1 or is_atl_2 or ora_sap_1 or ora_sap_2:
+        # riquadro (ATL, orario o tempi), entrambe devono avere la stessa altezza,
+        # altrimenti il taglio a meta' foglio taglia il contenuto.
+        if is_atl_1 or is_atl_2 or ora_sap_1 or ora_sap_2 or ha_tempi_1 or ha_tempi_2:
             for riga in (2, 3, 34, 35):
                 ws_new.row_dimensions[riga].height = ATL_ROW_HEIGHT
 
@@ -562,6 +768,10 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
             scrivi_orario_sap_cell(ws_new, "C2",  "D3",  "C2:D3",   ora_sap_1, font_orario)
         if ora_sap_2:
             scrivi_orario_sap_cell(ws_new, "C34", "D35", "C34:D35", ora_sap_2, font_orario)
+        if ha_tempi_1:
+            scrivi_tempi_cell(ws_new, "H2",  "H3",  "H2:H3",   disp_1,  conf_1,  chius_1)
+        if ha_tempi_2:
+            scrivi_tempi_cell(ws_new, "H34", "H35", "H34:H35", disp_2,  conf_2,  chius_2)
 
         # --- ETICHETTA 1 ---
         if i < total:
@@ -677,10 +887,72 @@ def carica_file_csv_robusto(file):
 # UI principale
 # ---------------------------------------------------------------------------
 
+def _admin_attivo():
+    """True se l'URL contiene ?admin=1 (area amministratore)."""
+    try:
+        valore = st.query_params.get("admin", "")
+    except Exception:
+        try:
+            valore = st.experimental_get_query_params().get("admin", [""])[0]
+        except Exception:
+            valore = ""
+    return str(valore).lower() in ("1", "true", "si", "sì")
+
+
+def _area_amministratore():
+    """Area riservata (solo con ?admin=1 e password) per gestire le golden list."""
+    if not _admin_attivo():
+        return
+
+    with st.sidebar:
+        st.subheader("🔒 Amministrazione")
+        password = st.text_input("Password amministratore", type="password", key="admin_password")
+        if not password:
+            st.caption("Liste gestibili: vettori golden list, container, località Sicilia/Sardegna.")
+            return
+        if not golden_list.password_valida(password):
+            st.error("Password errata.")
+            return
+
+        corrispondenze = st.session_state.get("golden_matches") or []
+        if corrispondenze:
+            st.caption("Corrispondenze vettori ↔ golden list (ultima generazione)")
+            st.dataframe(corrispondenze)
+
+        liste = golden_list.carica_liste(usa_cache=False)
+        sezione = st.selectbox(
+            "Lista da modificare",
+            ["Vettori golden list", "Container golden list", "Località Sicilia", "Località Sardegna"],
+            key="admin_sezione",
+        )
+        if sezione == "Vettori golden list":
+            voci, chiave = liste["vettori"], "vettori"
+        elif sezione == "Container golden list":
+            voci, chiave = liste["container"], "container"
+        else:
+            nome_isola = "SICILIA" if sezione.endswith("Sicilia") else "SARDEGNA"
+            voci, chiave = liste["localita"].get(nome_isola, []), nome_isola
+
+        testo = st.text_area("Una voce per riga", value="\n".join(voci), height=220, key="admin_testo")
+        if st.button("Salva liste", key="admin_salva"):
+            nuove = [riga.strip() for riga in testo.splitlines() if riga.strip()]
+            if chiave == "vettori":
+                liste["vettori"] = nuove
+            elif chiave == "container":
+                liste["container"] = nuove
+            else:
+                liste["localita"][chiave] = nuove
+            ok, messaggio = golden_list.salva_liste(liste)
+            (st.success if ok else st.warning)(messaggio)
+
+
 def main():
     st.set_page_config(page_title="Generatore Etichette", layout="wide")
     st.title("Generatore Etichette")
     st.write("Carica i file SAP e DPE, scegli i filtri e genera le etichette in Excel.")
+
+    # Area amministratore: esiste solo se l'URL contiene ?admin=1 (protetta da password)
+    _area_amministratore()
 
     col1, col2 = st.columns(2)
 
@@ -748,6 +1020,7 @@ def main():
         df_sap_filtered = pd.DataFrame()
         df_dpe_filtered = pd.DataFrame()
         orari_number1   = {}
+        orari_programma = {}
 
         # ----------------------------------------------------------------
         # Elaborazione SAP
@@ -759,6 +1032,7 @@ def main():
                 sap_file.seek(0)
                 df_sap_grezzo = pd.read_excel(sap_file)
                 orari_number1 = estrai_orari_number1(df_sap_grezzo)
+                orari_programma = estrai_orari_sap(df_sap_grezzo)
                 if orari_number1:
                     st.info(f"Orari SAP per viaggi NUMBER 1: {len(orari_number1)}")
             except Exception as e:
@@ -850,6 +1124,39 @@ def main():
             )
         else:
             df_finale["Ora SAP"] = ""
+
+        # Orario di programma (SAP) e tempi DISPONIBILITA' / CONFERMA / CHIUSURA
+        if orari_programma and "Viaggio" in df_finale.columns:
+            df_finale["Ora Programmata"] = (
+                df_finale["Viaggio"].astype(str).str.strip().map(orari_programma)
+            )
+        else:
+            df_finale["Ora Programmata"] = ""
+
+        liste_golden = {"vettori": [], "container": [], "localita": {}}
+        try:
+            liste_golden = golden_list.carica_liste()
+            df_finale = aggiungi_tempi(df_finale, liste_golden)
+        except Exception as errore:
+            st.warning(f"Tempi di conferma/chiusura non calcolati: {errore}")
+            for colonna in ("Disp", "Conf", "Chius", "Regola"):
+                df_finale[colonna] = ""
+
+        try:
+            st.session_state["golden_matches"] = corrispondenze_golden(df_finale, liste_golden)
+        except Exception:
+            st.session_state["golden_matches"] = []
+
+        if len(df_finale) and "Regola" in df_finale.columns:
+            con_tempi = int((df_finale["Regola"].astype(str) != "").sum())
+            if con_tempi:
+                conteggi = df_finale.loc[df_finale["Regola"].astype(str) != "", "Regola"].value_counts()
+                riassunto = " · ".join(f"{regola}: {quantita}" for regola, quantita in conteggi.items())
+                st.caption(f"Riquadro tempi: {con_tempi} etichette — {riassunto}")
+                with st.expander("Dettaglio tempi per viaggio"):
+                    colonne_tempi = [c for c in ("Viaggio", "Regola", "Disp", "Conf", "Chius")
+                                     if c in df_finale.columns]
+                    st.dataframe(df_finale.loc[df_finale["Regola"].astype(str) != "", colonne_tempi])
 
         # Numerazione pari/dispari
         st.info("Applico numerazione pari/dispari...")
