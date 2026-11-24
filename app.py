@@ -4,6 +4,8 @@ import os
 import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 import re
 import tempfile
 import io
@@ -141,6 +143,29 @@ def estrai_orari_sap(df_sap):
     return orari
 
 
+def estrai_viaggi_container(df_sap):
+    """
+    Restituisce (set di viaggi container, nome della colonna).
+    Un viaggio e' container se la colonna "Modulo di carico" contiene "container".
+    """
+    colonna = next(
+        (c for c in df_sap.columns
+         if "modulo" in str(c).strip().lower() and "carico" in str(c).strip().lower()),
+        None,
+    )
+    if colonna is None or "Viaggio" not in df_sap.columns:
+        return set(), colonna
+
+    viaggi = set()
+    for _, riga in df_sap.iterrows():
+        if "container" not in _testo_riga(riga.get(colonna, "")).lower():
+            continue
+        viaggio = clean_excel_text(riga.get("Viaggio", ""))
+        if viaggio:
+            viaggi.add(viaggio)
+    return viaggi, colonna
+
+
 def _testo_riga(valore):
     """Testo pulito da un valore di DataFrame (stringa vuota per NaN/None)."""
     if valore is None:
@@ -151,6 +176,11 @@ def _testo_riga(valore):
     except (TypeError, ValueError):
         pass
     return str(valore).strip()
+
+
+def _vero(valore):
+    """True per valori booleani provenienti da DataFrame (gestisce NaN)."""
+    return _testo_riga(valore).lower() in ("true", "1", "si", "sì", "yes", "y")
 
 
 def tipo_viaggio(riga):
@@ -196,29 +226,37 @@ def _hhmm(minuti):
     return f"{minuti // 60:02d}:{minuti % 60:02d}"
 
 
-def calcola_tempi(orario, tipo, golden, isola):
+def calcola_tempi(orario, tipo, golden, isola, container=False):
     """
-    Tempi (disponibilita', conferma, chiusura) in 'HH:MM'.
+    Restituisce (categoria, disponibilita', conferma, chiusura) in 'HH:MM'.
 
     P = orario di programma (Ora Carico da di SAP), uguale per tutti i viaggi.
-    - A Piazzale:                 DISP = P-12h, CONF = P-6h, CHIUS = P+3h
-    - Orario fisso e (golden o isola): DISP = --, CONF = P-4h, CHIUS = P+3h
+    - Container:                      DISP = --,    CONF = P-4h,  CHIUS = P+4h
+    - A Piazzale:                     DISP = P-12h, CONF = P-6h,  CHIUS = P
+    - Orario fisso con golden/isola:  DISP = --,    CONF = P-4h,  CHIUS = P+3h
     - altri tipi: nessun riquadro.
     """
     minuti = _minuti_orario(orario)
-    if minuti is None or not tipo:
-        return "", "", ""
+    if minuti is None:
+        return "", "", "", ""
+
+    if container:
+        return "CONTAINER", "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 4 * 60)
     if tipo == "piazzale":
-        return _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti + 3 * 60)
+        return "A PIAZZALE", _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti)
     if tipo == "fisso" and (golden or isola):
-        return "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 3 * 60)
-    return "", "", ""
+        categoria = "ISOLA" if isola else "GOLDEN LIST"
+        return categoria, "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 3 * 60)
+    return "", "", "", ""
+
+
+
 
 
 def aggiungi_tempi(df, liste):
-    """Aggiunge le colonne Disp / Conf / Chius / Regola (testo vuoto se non applicabile)."""
+    """Aggiunge le colonne Regola (categoria) / Disp / Conf / Chius."""
     if df.empty:
-        for colonna in ("Disp", "Conf", "Chius", "Regola"):
+        for colonna in ("Regola", "Disp", "Conf", "Chius"):
             df[colonna] = ""
         return df
 
@@ -226,38 +264,40 @@ def aggiungi_tempi(df, liste):
     localita = (liste or {}).get("localita", {})
     cache_vettori = {}
 
-    disp_lista, conf_lista, chius_lista, regola_lista = [], [], [], []
+    regole, disponibilita, conferme, chiusure = [], [], [], []
     for _, riga in df.iterrows():
-        disp = conf = chius = regola = ""
+        regola = disp = conf = chius = ""
         try:
-            tipo = tipo_viaggio(riga)
-            if tipo:
-                vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
-                if vettore not in cache_vettori:
-                    cache_vettori[vettore] = golden_list.vettore_in_golden_list(vettore, vettori)[0]
-                golden = cache_vettori[vettore]
-                isola = golden_list.isola_destinazione(
-                    riga.get("Regione Finale", ""),
-                    riga.get("Sequenza fermate", "") or riga.get("Sequenza", ""),
-                    localita,
-                )
-                disp, conf, chius = calcola_tempi(riga.get("Ora Programmata", ""), tipo, golden, isola)
-                if tipo == "piazzale" and disp:
-                    regola = "A Piazzale"
-                elif conf:
-                    regola = f"Isola {isola}" if isola else "Golden list"
+            vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
+            if vettore not in cache_vettori:
+                cache_vettori[vettore] = golden_list.vettore_in_golden_list(vettore, vettori)[0]
+            isola = golden_list.isola_destinazione(
+                riga.get("Regione Finale", ""),
+                riga.get("Sequenza fermate", "") or riga.get("Sequenza", ""),
+                localita,
+            )
+            regola, disp, conf, chius = calcola_tempi(
+                riga.get("Ora Programmata", ""),
+                tipo_viaggio(riga),
+                cache_vettori[vettore],
+                isola,
+                _vero(riga.get("is_container", False)),
+            )
         except Exception:
-            disp = conf = chius = regola = ""
-        disp_lista.append(disp)
-        conf_lista.append(conf)
-        chius_lista.append(chius)
-        regola_lista.append(regola)
+            regola = disp = conf = chius = ""
+        regole.append(regola)
+        disponibilita.append(disp)
+        conferme.append(conf)
+        chiusure.append(chius)
 
-    df["Disp"] = disp_lista
-    df["Conf"] = conf_lista
-    df["Chius"] = chius_lista
-    df["Regola"] = regola_lista
+    df["Regola"] = regole
+    df["Disp"] = disponibilita
+    df["Conf"] = conferme
+    df["Chius"] = chiusure
     return df
+
+
+
 
 
 def corrispondenze_golden(df, liste):
@@ -552,36 +592,80 @@ def calcola_font_viaggio(testo, font_base=88):
     return font_base
 
 
+def _estrai_data_ora(value):
+    """
+    Estrae (giorno, mese, ore, minuti) da datetime/time o da stringhe in formati
+    diversi: italiano DD/MM/YYYY HH:MM, ISO YYYY/MM/DD HH:MM, con punti o secondi,
+    solo ora. Restituisce None se non riconosce nulla.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, datetime.datetime):
+        return value.day, value.month, value.hour, value.minute
+    if isinstance(value, datetime.time):
+        return None, None, value.hour, value.minute
+    if isinstance(value, datetime.date):
+        return value.day, value.month, None, None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < 1:
+        minuti = int(round(value * 24 * 60))
+        return None, None, minuti // 60, minuti % 60
+
+    testo = str(value).strip()
+    if not testo or testo.lower() in ("nan", "nat", "none"):
+        return None
+
+    formati = (
+        "%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H.%M", "%d/%m/%Y %H.%M.%S",
+        "%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+        "%d-%m-%Y %H:%M", "%d.%m.%Y %H.%M", "%d.%m.%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d",
+    )
+    for formato in formati:
+        try:
+            data = datetime.datetime.strptime(testo, formato)
+        except ValueError:
+            continue
+        if "%H" in formato:
+            return data.day, data.month, data.hour, data.minute
+        return data.day, data.month, None, None
+
+    data = pd.to_datetime(testo, errors="coerce", dayfirst=True)
+    if not pd.isna(data):
+        if ":" in testo:
+            return data.day, data.month, data.hour, data.minute
+        return data.day, data.month, None, None
+
+    # ultima risorsa: estrazione con espressioni regolari
+    ora = re.search(r"(\d{1,2})[:.](\d{2})(?::\d{2})?\s*$", testo)
+    giorno_mese = re.match(r"\s*(\d{1,2})[/.\-](\d{1,2})(?:[/.\-]\d{2,4})?", testo)
+    ore = int(ora.group(1)) if ora else None
+    minuti = int(ora.group(2)) if ora else None
+    giorno = int(giorno_mese.group(1)) if giorno_mese else None
+    mese = int(giorno_mese.group(2)) if giorno_mese else None
+    if ore is None and giorno is None:
+        return None
+    return giorno, mese, ore, minuti
+
+
 def format_hhmm(value):
     """Formatta i valori di tempo in formato HH:MM."""
-    if pd.isna(value) or value == "":
+    estratto = _estrai_data_ora(value)
+    if not estratto or estratto[2] is None:
         return ""
-    try:
-        dt = pd.to_datetime(value, errors="coerce")
-        if not pd.isna(dt):
-            return dt.strftime("%H:%M")
-        val = str(value).strip()
-        if re.match(r"^\d{1,2}\.\d{2}(:\d{2})?$", val):
-            val = val.replace(".", ":")
-        if re.match(r"^\d{1,2}:\d{2}:\d{2}$", val):
-            hh, mm, _ = val.split(":")
-            return f"{hh.zfill(2)}:{mm}"
-        if re.match(r"^\d{1,2}:\d{2}$", val):
-            hh, mm = val.split(":")
-            return f"{hh.zfill(2)}:{mm}"
-        return val
-    except Exception:
-        return str(value).strip()
+    return f"{estratto[2]:02d}:{estratto[3]:02d}"
 
 
 def format_ddmm(value):
     """Formatta le date in formato DD/MM."""
-    if pd.isna(value) or value == "":
+    estratto = _estrai_data_ora(value)
+    if not estratto or estratto[0] is None:
         return ""
-    try:
-        return pd.to_datetime(value, errors="coerce").strftime("%d/%m")
-    except Exception:
-        return str(value)
+    return f"{estratto[0]:02d}/{estratto[1]:02d}"
 
 
 def set_spola_style(ws, cell):
@@ -685,10 +769,10 @@ def scrivi_orario_sap_cell(ws, cella_top, cella_bottom, merge_range, orario, fon
     cella.border    = ORA_SAP_BORDER
 
 
-def scrivi_tempi_cell(ws, cella_top, cella_bottom, merge_range, disp, conf, chius):
+def scrivi_tempi_cell(ws, cella_top, cella_bottom, merge_range, categoria, disp, conf, chius):
     """
-    Riquadro con DISPONIBILITA' / CONFERMA / CHIUSURA in H2:H3 (etichetta 1) o
-    H34:H35 (etichetta 2), a destra del riquadro ATL. Le voci mancanti sono '—'.
+    Riquadro con la categoria (in grassetto) e DISPONIBILITA' / CONFERMA /
+    CHIUSURA in H2:H3 (etichetta 1) o H34:H35 (etichetta 2), a destra dell'ATL.
     """
     top_row    = int(re.sub(r"[A-Z]", "", cella_top))
     bottom_row = int(re.sub(r"[A-Z]", "", cella_bottom))
@@ -700,20 +784,21 @@ def scrivi_tempi_cell(ws, cella_top, cella_bottom, merge_range, disp, conf, chiu
         for cella in riga:
             cella.border = TEMPI_BORDER
 
-    cella = ws[cella_top]
-    cella.value = "\n".join([
+    dettaglio = "\n".join([
         f"DISP  {disp or '—'}",
         f"CONF  {conf or '—'}",
         f"CHIUS {chius or '—'}",
     ])
-    cella.font      = Font(name=TEMPI_FONT_NAME, size=TEMPI_FONT_SIZE, bold=True)
+    cella = ws[cella_top]
+    cella.value = CellRichText([
+        TextBlock(InlineFont(b=True, sz=TEMPI_FONT_SIZE, rFont=TEMPI_FONT_NAME), categoria),
+        TextBlock(InlineFont(sz=TEMPI_FONT_SIZE, rFont=TEMPI_FONT_NAME), "\n" + dettaglio),
+    ])
     cella.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     cella.border    = TEMPI_BORDER
 
 
-# ---------------------------------------------------------------------------
-# Generazione etichette
-# ---------------------------------------------------------------------------
+
 
 def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_ingaggio):
     """Crea le etichette Excel dal template."""
@@ -743,19 +828,21 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         ora_sap_1 = format_hhmm(df.iloc[i].get("Ora SAP", ""))     if i     < total else ""
         ora_sap_2 = format_hhmm(df.iloc[i + 1].get("Ora SAP", "")) if i + 1 < total else ""
 
-        # Riquadro tempi (Disponibilita' / Conferma / Chiusura), a destra dell'ATL
-        disp_1 = conf_1 = chius_1 = ""
-        disp_2 = conf_2 = chius_2 = ""
+        # Riquadro tempi (categoria + Disponibilita' / Conferma / Chiusura)
+        categoria_1 = disp_1 = conf_1 = chius_1 = ""
+        categoria_2 = disp_2 = conf_2 = chius_2 = ""
         if i < total:
+            categoria_1 = _testo_riga(df.iloc[i].get("Regola", ""))
             disp_1  = _testo_riga(df.iloc[i].get("Disp", ""))
             conf_1  = _testo_riga(df.iloc[i].get("Conf", ""))
             chius_1 = _testo_riga(df.iloc[i].get("Chius", ""))
         if i + 1 < total:
+            categoria_2 = _testo_riga(df.iloc[i + 1].get("Regola", ""))
             disp_2  = _testo_riga(df.iloc[i + 1].get("Disp", ""))
             conf_2  = _testo_riga(df.iloc[i + 1].get("Conf", ""))
             chius_2 = _testo_riga(df.iloc[i + 1].get("Chius", ""))
-        ha_tempi_1 = bool(disp_1 or conf_1 or chius_1)
-        ha_tempi_2 = bool(disp_2 or conf_2 or chius_2)
+        ha_tempi_1 = bool(categoria_1)
+        ha_tempi_2 = bool(categoria_2)
 
         # Altezze uniformi delle fasce superiori: se una delle due etichette ha un
         # riquadro (ATL, orario o tempi), entrambe devono avere la stessa altezza,
@@ -769,9 +856,9 @@ def create_labels_from_template(df, template_path, output_path, filtro_dpe_tipo_
         if ora_sap_2:
             scrivi_orario_sap_cell(ws_new, "C34", "D35", "C34:D35", ora_sap_2, font_orario)
         if ha_tempi_1:
-            scrivi_tempi_cell(ws_new, "H2",  "H3",  "H2:H3",   disp_1,  conf_1,  chius_1)
+            scrivi_tempi_cell(ws_new, "H2",  "H3",  "H2:H3",   categoria_1, disp_1,  conf_1,  chius_1)
         if ha_tempi_2:
-            scrivi_tempi_cell(ws_new, "H34", "H35", "H34:H35", disp_2,  conf_2,  chius_2)
+            scrivi_tempi_cell(ws_new, "H34", "H35", "H34:H35", categoria_2, disp_2,  conf_2,  chius_2)
 
         # --- ETICHETTA 1 ---
         if i < total:
@@ -933,7 +1020,9 @@ def _area_amministratore():
             nome_isola = "SICILIA" if sezione.endswith("Sicilia") else "SARDEGNA"
             voci, chiave = liste["localita"].get(nome_isola, []), nome_isola
 
-        testo = st.text_area("Una voce per riga", value="\n".join(voci), height=220, key="admin_testo")
+        st.caption(f"{len(voci)} voci nella lista «{sezione}»")
+        testo = st.text_area("Una voce per riga", value="\n".join(voci), height=220,
+                             key=f"admin_testo_{chiave}")
         if st.button("Salva liste", key="admin_salva"):
             nuove = [riga.strip() for riga in testo.splitlines() if riga.strip()]
             if chiave == "vettori":
@@ -1019,8 +1108,10 @@ def main():
 
         df_sap_filtered = pd.DataFrame()
         df_dpe_filtered = pd.DataFrame()
-        orari_number1   = {}
-        orari_programma = {}
+        orari_number1    = {}
+        orari_programma  = {}
+        viaggi_container = set()
+        colonna_modulo   = None
 
         # ----------------------------------------------------------------
         # Elaborazione SAP
@@ -1033,6 +1124,7 @@ def main():
                 df_sap_grezzo = pd.read_excel(sap_file)
                 orari_number1 = estrai_orari_number1(df_sap_grezzo)
                 orari_programma = estrai_orari_sap(df_sap_grezzo)
+                viaggi_container, colonna_modulo = estrai_viaggi_container(df_sap_grezzo)
                 if orari_number1:
                     st.info(f"Orari SAP per viaggi NUMBER 1: {len(orari_number1)}")
             except Exception as e:
@@ -1132,6 +1224,23 @@ def main():
             )
         else:
             df_finale["Ora Programmata"] = ""
+
+        # Viaggi container: colonna "Modulo di carico" del file SAP
+        if "Viaggio" in df_finale.columns and viaggi_container:
+            df_finale["is_container"] = (
+                df_finale["Viaggio"].astype(str).str.strip().isin(viaggi_container)
+            )
+            st.caption(
+                f"Container: {int(df_finale['is_container'].sum())} etichette "
+                f"(colonna '{colonna_modulo}')"
+            )
+        else:
+            df_finale["is_container"] = False
+            if sap_file is not None and colonna_modulo is None:
+                st.info(
+                    "Colonna 'Modulo di carico' non trovata nel file SAP: "
+                    "nessun viaggio marcato come container."
+                )
 
         liste_golden = {"vettori": [], "container": [], "localita": {}}
         try:
