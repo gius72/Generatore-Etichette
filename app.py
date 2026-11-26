@@ -231,19 +231,20 @@ def calcola_tempi(orario, tipo, golden, isola, container=False):
     Restituisce (categoria, disponibilita', conferma, chiusura) in 'HH:MM'.
 
     P = orario di programma (Ora Carico da di SAP), uguale per tutti i viaggi.
-    - Container:                      DISP = --,    CONF = P-4h,  CHIUS = P+4h
-    - A Piazzale:                     DISP = P-12h, CONF = P-6h,  CHIUS = P
-    - Orario fisso con golden/isola:  DISP = --,    CONF = P-4h,  CHIUS = P+3h
+    - A Piazzale (anche se container): DISP = P-12h, CONF = P-6h,  CHIUS = P
+    - Container con orario fisso:      DISP = --,    CONF = P-4h,  CHIUS = P+4h
+    - Orario fisso con golden/isola:   DISP = --,    CONF = P-4h,  CHIUS = P+3h
     - altri tipi: nessun riquadro.
     """
     minuti = _minuti_orario(orario)
     if minuti is None:
         return "", "", "", ""
 
-    if container:
-        return "CONTAINER", "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 4 * 60)
+    # I viaggi a piazzale seguono sempre le regole del piazzale, anche se container
     if tipo == "piazzale":
         return "A PIAZZALE", _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti)
+    if container:
+        return "CONTAINER", "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 4 * 60)
     if tipo == "fisso" and (golden or isola):
         categoria = "ISOLA" if isola else "GOLDEN LIST"
         return categoria, "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 3 * 60)
