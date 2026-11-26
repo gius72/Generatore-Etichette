@@ -240,9 +240,11 @@ def calcola_tempi(orario, tipo, golden, isola, container=False):
     if minuti is None:
         return "", "", "", ""
 
-    # I viaggi a piazzale seguono sempre le regole del piazzale, anche se container
+    # I viaggi a piazzale seguono le regole del piazzale; se sono container
+    # mantengono la scritta CONTAINER nel riquadro
     if tipo == "piazzale":
-        return "A PIAZZALE", _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti)
+        categoria = "CONTAINER" if container else "A PIAZZALE"
+        return categoria, _hhmm(minuti - 12 * 60), _hhmm(minuti - 6 * 60), _hhmm(minuti)
     if container:
         return "CONTAINER", "", _hhmm(minuti - 4 * 60), _hhmm(minuti + 4 * 60)
     if tipo == "fisso" and (golden or isola):
