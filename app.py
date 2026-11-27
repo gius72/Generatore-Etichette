@@ -233,6 +233,11 @@ def chiave_sap_riga(riga):
     return viaggio
 
 
+def is_spola(riga):
+    """True per i viaggi con Tipo Ingaggio SPOLA/SPOLE: non hanno il riquadro tempi."""
+    return "spol" in _testo_riga(riga.get("Tipo Ingaggio", "")).lower()
+
+
 def tipo_viaggio(riga):
     """'piazzale' / 'fisso' (orario fisso = diretto) / '' se non riconosciuto."""
     for colonna in ("Rimorchio", "Tipo Gestione"):
@@ -321,6 +326,8 @@ def aggiungi_tempi(df, liste):
     for _, riga in df.iterrows():
         regola = disp = conf = chius = ""
         try:
+            if is_spola(riga):
+                raise ValueError("viaggio SPOLA: nessun riquadro")
             # vettore del DPE e spedizioniere del SAP (possono essere diversi)
             vettore_dpe = _testo_riga(riga.get("Trasportatore"))
             vettore_sap = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Vettore SAP"))
