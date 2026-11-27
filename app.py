@@ -166,6 +166,26 @@ def estrai_viaggi_container(df_sap):
     return viaggi, colonna
 
 
+def estrai_vettori_sap(df_sap):
+    """
+    Restituisce {viaggio: DescrSpedizioniere} per tutti i viaggi del file SAP.
+
+    Serve per la golden list quando l'etichetta arriva dal DPE: in quel caso il
+    vettore stampato e' quello del DPE (Trasportatore), mentre in golden list
+    compare lo spedizioniere SAP (es. NUMBER 1 LOGISTICS GROUP S.P.A.).
+    """
+    if not {"Viaggio", "DescrSpedizioniere"}.issubset(set(df_sap.columns)):
+        return {}
+
+    vettori = {}
+    for _, riga in df_sap.iterrows():
+        viaggio = clean_excel_text(riga.get("Viaggio", ""))
+        if not viaggio or viaggio in vettori:
+            continue
+        vettori[viaggio] = _testo_riga(riga.get("DescrSpedizioniere", ""))
+    return vettori
+
+
 def _testo_riga(valore):
     """Testo pulito da un valore di DataFrame (stringa vuota per NaN/None)."""
     if valore is None:
@@ -181,6 +201,36 @@ def _testo_riga(valore):
 def _vero(valore):
     """True per valori booleani provenienti da DataFrame (gestisce NaN)."""
     return _testo_riga(valore).lower() in ("true", "1", "si", "sì", "yes", "y")
+
+
+def _trova_numero_sap(testo):
+    """
+    Estrae il numero di viaggio SAP (7 cifre) da un testo libero (Note Ing./Note Mag.).
+    Le cifre devono essere isolate: un codice container (es. FCIE4500058) non vale.
+    """
+    testo = _testo_riga(testo)
+    if not testo:
+        return ""
+    trovato = re.search(r"(?<![A-Za-z0-9])(\d{7})(?![0-9])", testo)
+    return trovato.group(1) if trovato else ""
+
+
+def chiave_sap_riga(riga):
+    """
+    Numero di viaggio SAP del record.
+
+    Se il viaggio del file e' gia' di 7 cifre si usa quello; altrimenti si cerca
+    il numero SAP (7 cifre) nelle colonne Note Ing. / Note Mag. (tipico delle
+    righe DPE, che hanno un numero di 6 cifre).
+    """
+    viaggio = clean_excel_text(riga.get("Viaggio", ""))
+    if _trova_numero_sap(viaggio):
+        return viaggio
+    for colonna in ("Note Ing.", "Note Mag."):
+        numero = _trova_numero_sap(riga.get(colonna, ""))
+        if numero:
+            return numero
+    return viaggio
 
 
 def tipo_viaggio(riga):
@@ -271,9 +321,15 @@ def aggiungi_tempi(df, liste):
     for _, riga in df.iterrows():
         regola = disp = conf = chius = ""
         try:
-            vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
-            if vettore not in cache_vettori:
-                cache_vettori[vettore] = golden_list.vettore_in_golden_list(vettore, vettori)[0]
+            # vettore del DPE e spedizioniere del SAP (possono essere diversi)
+            vettore_dpe = _testo_riga(riga.get("Trasportatore"))
+            vettore_sap = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Vettore SAP"))
+            chiave = (vettore_dpe, vettore_sap)
+            if chiave not in cache_vettori:
+                cache_vettori[chiave] = (
+                    golden_list.vettore_in_golden_list(vettore_dpe, vettori)[0]
+                    or golden_list.vettore_in_golden_list(vettore_sap, vettori)[0]
+                )
             isola = golden_list.isola_destinazione(
                 riga.get("Regione Finale", ""),
                 riga.get("Sequenza fermate", "") or riga.get("Sequenza", ""),
@@ -282,7 +338,7 @@ def aggiungi_tempi(df, liste):
             regola, disp, conf, chius = calcola_tempi(
                 riga.get("Ora Programmata", ""),
                 tipo_viaggio(riga),
-                cache_vettori[vettore],
+                cache_vettori[chiave],
                 isola,
                 _vero(riga.get("is_container", False)),
             )
@@ -308,12 +364,17 @@ def corrispondenze_golden(df, liste):
     vettori = (liste or {}).get("vettori", [])
     visti, righe = set(), []
     for _, riga in df.iterrows():
-        vettore = _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Trasportatore"))
-        if not vettore or vettore in visti:
-            continue
-        visti.add(vettore)
-        trovato, voce, punteggio = golden_list.vettore_in_golden_list(vettore, vettori)
-        righe.append({"vettore": vettore, "voce_lista": voce, "punteggio": round(punteggio, 2), "trovato": trovato})
+        nomi = (
+            _testo_riga(riga.get("Trasportatore")),
+            _testo_riga(riga.get("DescrSpedizioniere")) or _testo_riga(riga.get("Vettore SAP")),
+        )
+        for vettore in nomi:
+            if not vettore or vettore in visti:
+                continue
+            visti.add(vettore)
+            trovato, voce, punteggio = golden_list.vettore_in_golden_list(vettore, vettori)
+            righe.append({"vettore": vettore, "voce_lista": voce,
+                          "punteggio": round(punteggio, 2), "trovato": trovato})
     return righe
 
 
@@ -579,7 +640,12 @@ def formato_viaggio_dpe(row):
     Altrimenti: 'VIAGGIO'
     """
     viaggio = clean_excel_text(row.get("Viaggio", ""))
-    nota    = clean_excel_text(row.get("Note Ing.", ""))
+    if not _trova_numero_sap(viaggio):
+        for colonna in ("Note Ing.", "Note Mag."):
+            numero = _trova_numero_sap(row.get(colonna, ""))
+            if numero:
+                return numero
+    nota = clean_excel_text(row.get("Note Ing.", ""))
     if nota:
         return f"{nota} ({viaggio})"
     return viaggio
@@ -1115,6 +1181,7 @@ def main():
         orari_programma  = {}
         viaggi_container = set()
         colonna_modulo   = None
+        vettori_sap      = {}
 
         # ----------------------------------------------------------------
         # Elaborazione SAP
@@ -1128,6 +1195,7 @@ def main():
                 orari_number1 = estrai_orari_number1(df_sap_grezzo)
                 orari_programma = estrai_orari_sap(df_sap_grezzo)
                 viaggi_container, colonna_modulo = estrai_viaggi_container(df_sap_grezzo)
+                vettori_sap = estrai_vettori_sap(df_sap_grezzo)
                 if orari_number1:
                     st.info(f"Orari SAP per viaggi NUMBER 1: {len(orari_number1)}")
             except Exception as e:
@@ -1212,26 +1280,42 @@ def main():
         if "is_atl" not in df_finale.columns:
             df_finale["is_atl"] = False
 
+        # Chiave SAP del viaggio: per le righe DPE il numero di 7 cifre sta nelle note
+        if "Viaggio" in df_finale.columns:
+            df_finale["Chiave SAP"] = [
+                chiave_sap_riga(riga) for _, riga in df_finale.iterrows()
+            ]
+        else:
+            df_finale["Chiave SAP"] = ""
+
         # Orario SAP (viaggi NUMBER 1) da stampare sulle etichette DPE
-        if orari_number1 and "Viaggio" in df_finale.columns:
+        if orari_number1 and "Chiave SAP" in df_finale.columns:
             df_finale["Ora SAP"] = (
-                df_finale["Viaggio"].astype(str).str.strip().map(orari_number1)
+                df_finale["Chiave SAP"].astype(str).str.strip().map(orari_number1)
             )
         else:
             df_finale["Ora SAP"] = ""
 
         # Orario di programma (SAP) e tempi DISPONIBILITA' / CONFERMA / CHIUSURA
-        if orari_programma and "Viaggio" in df_finale.columns:
+        if orari_programma and "Chiave SAP" in df_finale.columns:
             df_finale["Ora Programmata"] = (
-                df_finale["Viaggio"].astype(str).str.strip().map(orari_programma)
+                df_finale["Chiave SAP"].astype(str).str.strip().map(orari_programma)
             )
         else:
             df_finale["Ora Programmata"] = ""
 
+        # Spedizioniere SAP del viaggio (serve alla golden list per le etichette DPE)
+        if vettori_sap and "Chiave SAP" in df_finale.columns:
+            df_finale["Vettore SAP"] = (
+                df_finale["Chiave SAP"].astype(str).str.strip().map(vettori_sap)
+            )
+        else:
+            df_finale["Vettore SAP"] = ""
+
         # Viaggi container: colonna "Modulo di carico" del file SAP
-        if "Viaggio" in df_finale.columns and viaggi_container:
+        if "Chiave SAP" in df_finale.columns and viaggi_container:
             df_finale["is_container"] = (
-                df_finale["Viaggio"].astype(str).str.strip().isin(viaggi_container)
+                df_finale["Chiave SAP"].astype(str).str.strip().isin(viaggi_container)
             )
             st.caption(
                 f"Container: {int(df_finale['is_container'].sum())} etichette "
